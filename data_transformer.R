@@ -204,7 +204,17 @@ CalcZip <- function(customers, orders, orders.last){
 }
 
 
-CalcFacilities <- function(customers, orders, orders.last, orders.first){
+CalcDistances <- function(customers, orders, orders.last){
+  customers <- MergeToCustomers(customers, orders.last[, c("customer_db_id", "order_lat")],
+                                "order_lat", "x")
+  customers <- MergeToCustomers(customers, orders.last[, c("customer_db_id", "order_lng")],
+                                "order_lng", "y")
+  customers <- MergeToCustomers(customers, orders.last[, c("customer_db_id", "order_id")],
+                                "order_id", "id")
+  
+  source("utils/assign_clusters.R")
+  customers <- assign_cluster(customers)
+  
   avg.dist <- orders[, mean(fac_dist, na.rm = T), by = customer_db_id]
   customers <- MergeToCustomers(customers, avg.dist, "V1", "avg_fac_distance")
   

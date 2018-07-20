@@ -69,6 +69,28 @@ LoadReschedules <- function(){
     start.date = "2016-04-01", file = "churn_analysis/data/reschedules.csv")
 }
 
+LoadHubLocations <- function(churn.data){
+  hubs <- c("London" = c("South", "NE Camden Road", "York House - West", 
+                         "Central - Camden Road"),
+            "Paris" = c("South hub", "North hub"),
+            "Berlin" = c("Zentrallager"))
+  
+  hub.locations <- GetMongoTable("intwash_facilities", "{}", 
+                                 c("name", "reference", 
+                                   "address.geoLocation.coordinates"))
+  names(hub.locations) <- c("fac_db_id", "fac_name", "fac_id","fac_coordinates")
+  hub.locations <- hub.locations[fac_name %in% unlist(hubs, use.names = F)]
+  hub.locations <- get_city(hub.locations, "fac_id")
+  hub.locations$lat <- unlist(
+    lapply(hub.locations$fac_coordinates, function(x) x[[2]]))
+  hub.locations$lng <- unlist(
+    lapply(hub.locations$fac_coordinates, function(x) x[[1]]))
+  
+  hub.locations <- hub.locations[, -c("fac_coordinates")]
+  
+  write.csv(hub.locations, "data/hub_locations.csv")
+}
+
 GetRatings <- function(churn.data){
   ratings <- fread(file="~/powerbi-share/R_outputs/ratings.csv")
   ratings.cols.old <- names(ratings)[grepl("topics", names(ratings))]
@@ -81,22 +103,6 @@ GetRatings <- function(churn.data){
                      all.x = TRUE, by.x = "order_id", by.y = "order_ref")
   
   return(churn.data)
-}
-
-LoadHubLocations <- function(churn.data){
-  hubs <- c("London" = c("South", "NE Camden Road", "York House - West", 
-                       "Central - Camden Road"),
-            "Paris" = c("South hub", "North hub"),
-            "Berlin" = c("Zentrallager"))
-  
-  hub.locations <- GetMongoTable("intwash_facilities", "{}", 
-                                 c("name", "reference", 
-                                   "address.geoLocation.coordinates"))
-  names(hub.locations) <- c("fac_db_id", "fac_name", "fac_id","fac_coordinates")
-  hub.locations <- hub.locations[fac_name %in% unlist(hubs, use.names = F)]
-  hub.locations <- get_city(hub.locations, "fac_id")
-  
-  write.csv(hub.locations, "data/hub_locations.csv")
 }
 
 GetFacility <- function(churn.data){
