@@ -15,7 +15,7 @@ LoadRefunds <- function(){
   refunds <- refunds[order(createdAt), .SD[.N], by = order_id]
   refunds <- refunds[, c("order_id", "refund")]
   
-  write.csv(refunds, "churn_analysis/data/refunds.csv", row.names = F)
+  write.csv(refunds, "data/refunds.csv", row.names = F)
 }
 
 
@@ -32,7 +32,7 @@ LoadCustomerData <- function(){
   cust.data <- cust.data[, -c("corporates", "friendReferral.referredCode")]
   names(cust.data) <- c("customer_db_id", "newsletter_optin", "customer_id",
                         "corporate", "referred")
-  write.csv(cust.data, "churn_analysis/data/customers.csv", row.names = F)
+  write.csv(cust.data, "data/customers.csv", row.names = F)
 }
 
 
@@ -43,33 +43,26 @@ LoadFacilityLocation <- function(){
   names(fac.coords) <- c("fac_db_id", "fac_name", "facility_id", "coordinates")
   fac.coords[, fac_lng := unlist(lapply(coordinates, function(x) x[[1]]))]
   fac.coords[, fac_lat := unlist(lapply(coordinates, function(x) x[[2]]))]
-  # 
-  # active.hubs <- list(
-  #   "London" = c("Central - Camden Road", "York House - West", "NE Camden Road", "South"),
-  #   "Berlin" = c("Zentrallager"),
-  #   "Paris" = c("North hub", "South hub")
-  # )
-  # fac.coords <- fac.coords[facility_name %in% unlist(active.hubs, use.names = F)]
   
   fac.coords <- get_city(fac.coords, id.col = "facility_id")
   fac.coords <- fac.coords[, c("fac_db_id", "fac_name", "fac_lat", "fac_lng")]
   
-  write.csv(fac.coords, "churn_analysis/data/facilities.csv", row.names = F)
+  write.csv(fac.coords, "data/facilities.csv", row.names = F)
 }
 
 LoadOrderFacitility <- function(){
-  source("operations/orders.R")
+  source("~/Projects/bi-reporting/etl/operations/orders.R")
   recleans <- CalcOrders(
-    start.date = "2017-01-01", file = "churn_analysis/data/orders.csv")
+    start.date = "2017-01-01", file = "data/orders.csv")
 }
 
 LoadReschedules <- function(){
-  source("operations/reschedules.R")
+  source("~/Projects/bi-reporting/etl/operations/reschedules.R")
   reschedules <- CalcReschedules(
-    start.date = "2016-04-01", file = "churn_analysis/data/reschedules.csv")
+    start.date = "2016-04-01", file = "data/reschedules.csv")
 }
 
-LoadHubLocations <- function(churn.data){
+LoadHubLocations <- function(){
   hubs <- c("London" = c("South", "NE Camden Road", "York House - West", 
                          "Central - Camden Road"),
             "Paris" = c("South hub", "North hub"),
@@ -81,9 +74,9 @@ LoadHubLocations <- function(churn.data){
   names(hub.locations) <- c("fac_db_id", "fac_name", "fac_id","fac_coordinates")
   hub.locations <- hub.locations[fac_name %in% unlist(hubs, use.names = F)]
   hub.locations <- get_city(hub.locations, "fac_id")
-  hub.locations$lat <- unlist(
+  hub.locations$hub_lat <- unlist(
     lapply(hub.locations$fac_coordinates, function(x) x[[2]]))
-  hub.locations$lng <- unlist(
+  hub.locations$hub_lng <- unlist(
     lapply(hub.locations$fac_coordinates, function(x) x[[1]]))
   
   hub.locations <- hub.locations[, -c("fac_coordinates")]
@@ -107,7 +100,7 @@ GetRatings <- function(churn.data){
 
 GetFacility <- function(churn.data){
   
-  recleans <- fread("churn_analysis/data/orders.csv")
+  recleans <- fread("data/orders.csv")
   recleans.cols <- c("order_id", "fac_name", "reclean_order")
   recleans <- recleans[, reclean_order := as.logical(max(as.numeric(
     reclean_order))), by = order_id]
@@ -115,24 +108,12 @@ GetFacility <- function(churn.data){
   churn.data <- merge(churn.data, recleans[, recleans.cols, with = F],
                      all.x = TRUE, by = "order_id")
   
-  facilities <- fread("churn_analysis/data/facilities.csv")
-  churn.data <- merge(churn.data, facilities, by = "fac_name", all.x = T)
-  
-  library(geosphere)
-  CalcDistanceFromFacility <- function(r){
-    return(
-      distm(c(as.numeric(r[['order_lng']]), as.numeric(r[['order_lat']])), 
-            c(as.numeric(r[['fac_lng']]), as.numeric(r[['fac_lat']])), 
-            fun = distHaversine))
-  }
-  churn.data$fac_dist <- apply(churn.data, 1, CalcDistanceFromFacility)
-  
   return(churn.data)
 }
 
 GetReschedules <- function(churn.data){
  
-  reschedules <- fread("churn_analysis/data/reschedules.csv")
+  reschedules <- fread("data/reschedules.csv")
   reschedules <- reschedules[, c("order_id", "initiator")]
   reschedules <- dcast(reschedules, `order_id` ~ initiator)
   names(reschedules) <- c("order_id", "customer_reschedule", "internal_reschedule")
@@ -163,7 +144,7 @@ GetPunctuality <- function(churn.data){
 }
 
 GetVouchers <- function(churn.data) {
-  vouchers <- fread("marketing/csv/marketing_dataset.csv")
+  vouchers <- fread("~/Projects/bi-reporting/etl/marketing/csv/marketing_dataset.csv")
   vouchers <- vouchers[, c("order_id", "voucher_value")]
   churn.data <- merge(churn.data, vouchers, by = "order_id", all.x = TRUE)
   
@@ -172,7 +153,7 @@ GetVouchers <- function(churn.data) {
 
 GetRefunds <- function(churn.data) {
   
-  refunds <- fread("churn_analysis/data/refunds.csv")
+  refunds <- fread("data/refunds.csv")
   churn.data <- merge(churn.data, refunds, by = "order_id", all.x = TRUE)
   # set false only for orders since refund tracking is in DB
   churn.data[order_created_datetime >= "2017-03-06" & is.na(refund), 
@@ -200,7 +181,7 @@ GetBaskets <- function(churn.data) {
 
 GetCustomerData <- function(churn.data) {
   
-  cust.data <- fread("churn_analysis/data/customers.csv")
+  cust.data <- fread("data/customers.csv")
   churn.data <- merge(churn.data, cust.data, all.x = TRUE, by="customer_db_id")
   
   return(churn.data)
@@ -226,12 +207,11 @@ CalcChurnFactor <- function(churn.data){
 
 LoadData <- function(refresh = F){
   
-  out.file <- "churn_analysis/data/orders.csv"
+  out.file <- "data/order_churn_data.csv"
   
   data <- fread(file="~/powerbi-share/R_outputs/customer_analysis.csv")
   data <- as.data.table(data)
   data <- data[!duplicated(data)]
-  setnames(data, c("order_x", "order_y"), c("order_lat", "order_lng"))
   churn.data <- data[order(customer_db_id, order_created_datetime)]
 
   if (refresh){

@@ -3,7 +3,7 @@
 # city, id
 assign_cluster <- function(data, rm.coords=T){
   library(data.table)
-  
+
   data_na <- data[is.na(x)]
   data_na[, fleet := NA]
   
@@ -11,6 +11,8 @@ assign_cluster <- function(data, rm.coords=T){
   
   data_berlin <- data[city == "Berlin"]
   data_berlin[, fleet := "Zentrallager"]
+  data_berlin$coords.x1 <- data_berlin[['x']]
+  data_berlin$coords.x2 <- data_berlin[['y']]
   
   data <- rbind(data_berlin, 
                 assign_cluster_helper(data, "London"),
@@ -51,7 +53,7 @@ assign_cluster_helper <- function(data, city_name){
   }
   
   
-  lookup_fleet <- fread("data/lookup_fleet.csv")
+  lookup_fleet <- fread("data/input/lookup_fleet.csv")
   data <- data[city == city_name]
   points <- data
   
@@ -67,21 +69,19 @@ assign_cluster_helper <- function(data, city_name){
     lookup_fleet <- lookup_fleet[!duplicated(id)]
     points_out <- merge(points_out, lookup_fleet, all.x=T, by="id")
     
-
-    points <- rbind(points, points_out[!is.na(fleet)], use.names=T, fill = T)
+    points <- rbind(points, points_out[!is.na(fleet)], use.names=T, fill=T)
+    
     points_out <- points_out[is.na(fleet)]
     if (nrow(points_out)>0){
       points_out$fleet <- apply(points_out, 1, get_closest_cluster)
       lookup_fleet <- rbind(lookup_fleet, points_out[, c("id", "fleet")])
-      write.csv(lookup_fleet, file = "data/lookup_fleet.csv",
+      write.csv(lookup_fleet, file = "data/input/lookup_fleet.csv",
                 row.names = F)
-      
-      points <- rbind(points, points_out, use.names=T)
     }
-   
+    points <- rbind(points, points_out, use.names=T, fill = T)
     
     # gg_obj <- vis_assign_clusters(points, clusters_df)
-    # ggsave(paste0("imgs/clusters_", city_name, ".png"), gg_obj)  
+    # ggsave(paste0("../imgs/clusters_", city_name, ".png"), gg_obj)  
   }
   
   return(points)
@@ -90,9 +90,9 @@ assign_cluster_helper <- function(data, city_name){
 
 GetBordersDF <- function(city.name){
   library(sp)
+
   
-  
-  load("data/fleet_areas.RData")
+  load("data/input/fleet_areas.RData")
   borders <- borders[city == city.name]
   cluster.polygons <- list()
   

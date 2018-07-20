@@ -1,4 +1,3 @@
-library(data.table)
 
 MergeToCustomers <- function(customers, to.merge, col.name.old, col.name.new, 
                              by.x="customer_db_id", by.y="customer_db_id"){
@@ -205,15 +204,30 @@ CalcZip <- function(customers, orders, orders.last){
 
 
 CalcDistances <- function(customers, orders, orders.last){
-  customers <- MergeToCustomers(customers, orders.last[, c("customer_db_id", "order_lat")],
-                                "order_lat", "x")
-  customers <- MergeToCustomers(customers, orders.last[, c("customer_db_id", "order_lng")],
-                                "order_lng", "y")
-  customers <- MergeToCustomers(customers, orders.last[, c("customer_db_id", "order_id")],
-                                "order_id", "id")
+  customers <- merge(
+    customers, 
+    orders.last[, c("customer_db_id", "order_x", "order_y", "order_id")], 
+    all.x = T, by = "customer_db_id")
+  setnames(customers, c("order_x", "order_y", "order_id"), c("x", "y", "id"))
+  customers <- get_city(customers)
   
   source("utils/assign_clusters.R")
-  customers <- assign_cluster(customers)
+  c <- assign_cluster(customers)
+  
+  fleet.hubs <- c("Zentrallager" = "Zentrallager",
+                  "Central - Camden Road" = "Central",
+                  "York House - West" = "West",
+                  "South hub" = "South",
+                  "NE Camden Road" = "North East",
+                  "North hub" = "North Paris",
+                  "South hub" = "South Paris")
+  hubs <- fread("data/hub_locations.csv")
+  
+  for(i in 1:length(fleet.hubs)){
+    customers[grepl(fleet.hubs[i], fleet), hub := names(fleet.hubs)[i]]
+  }
+  customers <- merge(customers, hubs[, c("fac_name", "lat", "lng")], 
+                     by.x = "hub", by.y = "fac_name")
   
   avg.dist <- orders[, mean(fac_dist, na.rm = T), by = customer_db_id]
   customers <- MergeToCustomers(customers, avg.dist, "V1", "avg_fac_distance")
@@ -239,7 +253,9 @@ CalcDistances <- function(customers, orders, orders.last){
   return(customers)
 }
 
-orders <- fread("churn_analysis/data/orders.csv")
+library(data.table)
+source("utils/utils.R")
+orders <- fread("data/order_churn_data.csv")
 constant.cols <- c("customer_db_id", "customer_id", "gender", "segment", 
                    "aov", "recency", "frequency", "churn_factor", "referred", 
                    "newsletter_optin")
