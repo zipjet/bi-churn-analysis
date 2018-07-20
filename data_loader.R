@@ -83,17 +83,20 @@ GetRatings <- function(churn.data){
   return(churn.data)
 }
 
-GetHub <- function(churn.data){
+LoadHubLocations <- function(churn.data){
   hubs <- c("London" = c("South", "NE Camden Road", "York House - West", 
                        "Central - Camden Road"),
             "Paris" = c("South hub", "North hub"),
             "Berlin" = c("Zentrallager"))
   
   hub.locations <- GetMongoTable("intwash_facilities", "{}", 
-                                 c("name", "address.geoLocation.coordinates"))
-  hub.locations <- hub.locations[name %in% unlist(hubs, use.names = F)]
-  hub.locations[, lng := lapply(address.geoLocation.coordinates, function(x) x[[1]])]
-  hub.locations[, lat := lapply(address.geoLocation.coordinates, function(x) x[[2]])]
+                                 c("name", "reference", 
+                                   "address.geoLocation.coordinates"))
+  names(hub.locations) <- c("fac_db_id", "fac_name", "fac_id","fac_coordinates")
+  hub.locations <- hub.locations[fac_name %in% unlist(hubs, use.names = F)]
+  hub.locations <- get_city(hub.locations, "fac_id")
+  
+  write.csv(hub.locations, "data/hub_locations.csv")
 }
 
 GetFacility <- function(churn.data){

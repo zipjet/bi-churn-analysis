@@ -216,6 +216,16 @@ CalcFacilities <- function(customers, orders, orders.last, orders.first){
     customers, orders.first[, c("customer_db_id", "fac_name")],
     "fac_name", "first_order_fac_name")
   
+  library(geosphere)
+  CalcDistanceFromHub <- function(r){
+    distances <- lapply(
+      hub.locations[city == r[['city']], fac_coordinates], function(x) 
+        distm(c(as.numeric(r[['order_lng']]), as.numeric(r[['order_lat']])), x, 
+              fun = distHaversine))
+    return(min(unlist(distances)))
+  }
+  # churn.data$hub_distance <- apply(churn.data, 1, CalcDistanceFromHub)
+  
   return(customers)
 }
 
