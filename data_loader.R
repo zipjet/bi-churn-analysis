@@ -1,9 +1,3 @@
-library(data.table)
-library(jsonlite)
-library(ggplot2)
-
-source("utils/utils.R")
-
 LoadRefunds <- function(){
   refunds.fields <- c("reference", "type", "state", "createdAt")
   refunds.query <- '{"type": {"$in": ["REFUND_MANUAL", "REFUND_CREDITS", "REFUND_ADYEN"]}}'
@@ -63,25 +57,20 @@ LoadReschedules <- function(){
 }
 
 LoadHubLocations <- function(){
-  hubs <- c("London" = c("South", "NE Camden Road", "York House - West", 
-                         "Central - Camden Road"),
-            "Paris" = c("South hub", "North hub"),
-            "Berlin" = c("Zentrallager"))
+  source("utils/constants/fleets.R")
+  hubs <- names(fleet.hubs)
   
-  hub.locations <- GetMongoTable("intwash_facilities", "{}", 
-                                 c("name", "reference", 
-                                   "address.geoLocation.coordinates"))
-  names(hub.locations) <- c("fac_db_id", "fac_name", "fac_id","fac_coordinates")
-  hub.locations <- hub.locations[fac_name %in% unlist(hubs, use.names = F)]
-  hub.locations <- get_city(hub.locations, "fac_id")
-  hub.locations$hub_lat <- unlist(
-    lapply(hub.locations$fac_coordinates, function(x) x[[2]]))
-  hub.locations$hub_lng <- unlist(
-    lapply(hub.locations$fac_coordinates, function(x) x[[1]]))
+  hub.locs <- GetMongoTable("intwash_facilities", "{}",
+                            c("name", "reference", 
+                              "address.geoLocation.coordinates"))
+  names(hub.locs) <- c("fac_db_id", "fac_name", "fac_id","fac_coords")
+  hub.locs <- hub.locs[fac_name %in% unlist(hubs, use.names = F)]
+  hub.locs$hub_x <- unlist(lapply(hub.locs$fac_coords, function(x) x[[2]]))
+  hub.locs$hub_y <- unlist(lapply(hub.locs$fac_coords, function(x) x[[1]]))
   
-  hub.locations <- hub.locations[, -c("fac_coordinates")]
+  hub.locs <- hub.locs[, -c("fac_coords")]
   
-  write.csv(hub.locations, "data/hub_locations.csv")
+  write.csv(hub.locs, "data/hub_locations.csv")
 }
 
 GetRatings <- function(churn.data){
@@ -187,6 +176,50 @@ GetCustomerData <- function(churn.data) {
   return(churn.data)
 }
 
+GetCity <- function(churn.data){
+  return(get_city(churn.data, "order_id"))
+}
+
+GetDistanceFromHub <- function(churn.data){
+  
+  GetFleet <- function(churn.data){
+    source("utils/assign_clusters.R")
+    
+    col.names.old <- c("order_x", "order_y", "order_id")
+    col.names.new <- c("x", "y", "id")
+    setnames(churn.data, col.names.old, col.names.new)
+    
+    churn.data <- assign_cluster(churn.data)
+    churn.data <- churn.data[!duplicated(churn.data)]
+    setnames(churn.data, c("coords.x1", "coords.x2", "id"), col.names.old)
+    
+    return(churn.data)
+  }
+  
+  GetHubCoords <- function(churn.data){
+    source("utils/constants/fleets.R")
+    
+    hubs <- fread("data/hub_locations.csv")
+    for(i in 1:length(fleet.hubs)){
+      hub <- names(fleet.hubs)[i]
+      coords <- hubs[fac_name == hub, c("hub_x", "hub_y")]
+      churn.data[grepl(fleet.hubs[i], fleet), hub_x := coords$hub_x]
+      churn.data[grepl(fleet.hubs[i], fleet), hub_y := coords$hub_y]
+    }
+    
+    return(churn.data)
+  }
+  
+  churn.data <- GetFleet(churn.data)
+  churn.data <- GetHubCoords(churn.data)
+  
+  churn.data$hub_distance <- distHaversine(
+    cbind(churn.data$order_y, churn.data$order_x), 
+    cbind(churn.data$hub_y, churn.data$hub_x))
+  
+  return(churn.data)
+}
+
 CalcChurnFactor <- function(churn.data){
   # Computes the customer churn factor: churn_factor = recency/frequency
   # where recency is the time in days since last order and frequency is the 
@@ -207,6 +240,14 @@ CalcChurnFactor <- function(churn.data){
 
 LoadData <- function(refresh = F){
   
+  library(data.table)
+  library(jsonlite)
+  library(ggplot2)
+  
+  
+  source("utils/utils.R")
+  
+  
   out.file <- "data/order_churn_data.csv"
   
   data <- fread(file="~/powerbi-share/R_outputs/customer_analysis.csv")
@@ -214,15 +255,15 @@ LoadData <- function(refresh = F){
   data <- data[!duplicated(data)]
   churn.data <- data[order(customer_db_id, order_created_datetime)]
 
-  if (refresh){
+  if (refresh) {
     loaders <- list(LoadCustomerData, LoadRefunds, LoadOrderFacitility, 
-                    LoadReschedules)
+                    LoadReschedules, LoadHubLocations)
     lapply(loaders, function(f) f())
   }
   
   transformations <- c(CalcChurnFactor, GetFacility, GetRatings, GetReschedules, 
                        GetPunctuality, GetVouchers, GetRefunds, GetBaskets, 
-                       GetCustomerData)
+                       GetCustomerData, GetCity, GetDistanceFromHub)
   res <- lapply(transformations, function(f) churn.data <<- f(churn.data))
 
   churn.data <- churn.data[!duplicated(churn.data)]
