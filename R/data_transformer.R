@@ -31,6 +31,14 @@ CalcOrders <- function(customers, orders, orders.last){
 }                    
 
 
+CalcOrderDates <- function(customers, orders, orders.last, orders.first) {
+  customers <- MergeToCustomers(customers, orders.last[, c("customer_db_id", "order_created_datetime")],
+                                "order_created_datetime", "last_order_date")
+  customers <- MergeToCustomers(customers, orders.first[, c("customer_db_id", "order_created_datetime")],
+                                "order_created_datetime", "first_order_date")
+  return(customers)
+}
+
 CalcServiceClass <- function(customers, orders, orders.last, orders.first){
   cust.class <- orders[, .N, by = c("customer_db_id", "service_class")]
   cust.class <- dcast(cust.class, `customer_db_id` ~ service_class, value.var = "N")
@@ -244,6 +252,7 @@ orders.first <- orders[order(order_created_datetime), .SD[1], by = customer_db_i
 
 # BEHAVIOURAL
 customers <- CalcOrders(customers, orders, orders.last)
+customers <- CalcOrderDates(customers, orders, orders.last, orders.first)
 customers <- CalcServiceClass(customers, orders, orders.last, orders.first)
 customers <- CalcBasketSegments(customers, orders, orders.first)
 customers <- CalcVoucherUsage(customers, orders, orders.last, orders.first)

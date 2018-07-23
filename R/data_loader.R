@@ -46,14 +46,12 @@ LoadFacilityLocation <- function(){
 
 LoadOrderFacitility <- function(){
   source("~/Projects/bi-reporting/etl/operations/orders.R")
-  recleans <- CalcOrders(
-    start.date = "2017-01-01", file = "data/orders.csv")
+  recleans <- CalcOrders(start.date = "2017-01-01", file = "data/orders.csv")
 }
 
 LoadReschedules <- function(){
   source("~/Projects/bi-reporting/etl/operations/reschedules.R")
-  reschedules <- CalcReschedules(
-    start.date = "2016-04-01", file = "data/reschedules.csv")
+  reschedules <- CalcReschedules(start.date = "2016-04-01", file = "data/reschedules.csv")
 }
 
 LoadHubLocations <- function(){
