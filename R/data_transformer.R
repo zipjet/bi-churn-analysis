@@ -22,6 +22,7 @@ CalcOrders <- function(customers, orders, orders.last){
   customers <- CountOrders(customers, orders, c("processing"), "open_orders")
   customers <- CountOrders(customers, orders, c("canceled"), "canceled_orders")
   customers <- CountOrders(customers, orders, c("payment_error"), "pay_error_orders")
+  customers <- CountOrders(customers, orders, c("completed"), "completed_orders")
   customers[, total_orders := valid_orders + open_orders + canceled_orders + pay_error_orders]
   customers <- MergeToCustomers(customers, orders.last[, c("customer_db_id", "order_state")], 
                                 "order_state", "last_order_state")
@@ -202,63 +203,38 @@ CalcZip <- function(customers, orders, orders.last){
   return(customers)
 }
 
-
-CalcDistances <- function(customers, orders, orders.last){
-  customers <- merge(
-    customers, 
-    orders.last[, c("customer_db_id", "order_x", "order_y", "order_id")], 
-    all.x = T, by = "customer_db_id")
-  setnames(customers, c("order_x", "order_y", "order_id"), c("x", "y", "id"))
-  customers <- get_city(customers)
-  
-  source("utils/assign_clusters.R")
-  c <- assign_cluster(customers)
-  
-  fleet.hubs <- c("Zentrallager" = "Zentrallager",
-                  "Central - Camden Road" = "Central",
-                  "York House - West" = "West",
-                  "South hub" = "South",
-                  "NE Camden Road" = "North East",
-                  "North hub" = "North Paris",
-                  "South hub" = "South Paris")
-  hubs <- fread("data/hub_locations.csv")
-  
-  for(i in 1:length(fleet.hubs)){
-    customers[grepl(fleet.hubs[i], fleet), hub := names(fleet.hubs)[i]]
-  }
-  customers <- merge(customers, hubs[, c("fac_name", "lat", "lng")], 
-                     by.x = "hub", by.y = "fac_name")
-  
-  avg.dist <- orders[, mean(fac_dist, na.rm = T), by = customer_db_id]
-  customers <- MergeToCustomers(customers, avg.dist, "V1", "avg_fac_distance")
-  
-  customers <- MergeToCustomers(
-    customers, orders.last[, c("customer_db_id", "fac_name")],
-    "fac_name", "last_order_fac_name")
-  
-  customers <- MergeToCustomers(
-    customers, orders.first[, c("customer_db_id", "fac_name")],
-    "fac_name", "first_order_fac_name")
-  
-  library(geosphere)
-  CalcDistanceFromHub <- function(r){
-    distances <- lapply(
-      hub.locations[city == r[['city']], fac_coordinates], function(x) 
-        distm(c(as.numeric(r[['order_lng']]), as.numeric(r[['order_lat']])), x, 
-              fun = distHaversine))
-    return(min(unlist(distances)))
-  }
-  # churn.data$hub_distance <- apply(churn.data, 1, CalcDistanceFromHub)
+CalcFacility <- function(customers, orders, orders.last, orders.first) {
+  customers <- MergeToCustomers(customers, orders.last[, c("customer_db_id", "fac_name")],
+                                "fac_name", "last_order_fac_name")
+  customers <- MergeToCustomers(customers, orders.first[, c("customer_db_id", "fac_name")],
+                                "fac_name", "first_order_fac_name")
   
   return(customers)
 }
+
+CalcDistances <- function(customers, orders, orders.last, orders.first){
+  
+  avg.dist <- orders[, mean(hub_distance, na.rm = T), by = customer_db_id]
+  customers <- MergeToCustomers(customers, avg.dist, "V1", "avg_hub_distance")
+  
+  last.dist <- orders.last[, c("customer_db_id", "hub_distance")]
+  customers <- MergeToCustomers(customers, last.dist, 
+                                "hub_distance", "last_order_hub_distance")
+  
+  first.dist <- orders.first[, c("customer_db_id", "hub_distance")]
+  customers <- MergeToCustomers(customers, first.dist, 
+                                "hub_distance", "first_order_hub_distance")
+  
+  return(customers)
+}
+
 
 library(data.table)
 source("utils/utils.R")
 orders <- fread("data/order_churn_data.csv")
 constant.cols <- c("customer_db_id", "customer_id", "gender", "segment", 
                    "aov", "recency", "frequency", "churn_factor", "referred", 
-                   "newsletter_optin")
+                   "newsletter_optin", "city")
 customers <- orders[city == "London", constant.cols, with = F]
 customers <- customers[!duplicated(customers)]
 
@@ -277,15 +253,16 @@ customers <- CalcRecleans(customers, orders, orders.last)
 customers <- CalcReschedules(customers, orders)
 customers <- CalcRatings(customers, orders, orders.last, orders.first)
 customers <- CalcRefunds(customers, orders, orders.last)
+customers <- CalcFacility(customers, orders, orders.last, orders.first)
 
 
 ## OPERATIONAL
 customers <- CalcPickUps(customers, orders)
-customers <- CalcFacilities(customers, orders, orders.last, orders.first)
 
 # INDIVIDUAL
 customers <- CalcZip(customers, orders, orders.last)
+customers <- CalcDistances(customers, orders, orders.last, orders.first)
 
-write.csv(customers, "churn_analysis/data/churn_dataset.csv", row.names = F,
+write.csv(customers, "data/churn_dataset.csv", row.names = F,
           fileEncoding = "utf-8")
 
