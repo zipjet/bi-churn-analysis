@@ -97,6 +97,9 @@ GetFacility <- function(churn.data){
   churn.data <- merge(churn.data, recleans[, recleans.cols, with = F],
                      all.x = TRUE, by = "order_id")
   
+  tuxedo_aliases <- c("South", "Tuxedo Express", "Corporate", "NE Hub")
+  churn.data[fac_name %in% tuxedo_aliases, fac_name := "Tuxedo"]
+  
   return(churn.data)
 }
 
@@ -203,8 +206,8 @@ GetDistanceFromHub <- function(churn.data){
     for(i in 1:length(fleet.hubs)){
       hub <- names(fleet.hubs)[i]
       coords <- hubs[fac_name == hub, c("hub_x", "hub_y")]
-      churn.data[grepl(fleet.hubs[i], fleet), hub_x := coords$hub_x]
-      churn.data[grepl(fleet.hubs[i], fleet), hub_y := coords$hub_y]
+      churn.data[fleet == fleet.hubs[i], hub_x := coords$hub_x]
+      churn.data[fleet == fleet.hubs[i], hub_y := coords$hub_y]
     }
     
     return(churn.data)
