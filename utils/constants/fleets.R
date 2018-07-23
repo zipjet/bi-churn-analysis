@@ -45,7 +45,7 @@ evening_shift <- "ES"
 fleet.hubs <- c("Zentrallager" = "Zentrallager",
                 "Central - Camden Road" = "Central",
                 "York House - West" = "West",
-                "South hub" = "South",
+                "South" = "South",
                 "NE Camden Road" = "North East",
                 "North hub" = "North Paris",
                 "South hub" = "South Paris")
