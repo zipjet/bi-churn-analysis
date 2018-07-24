@@ -8,7 +8,7 @@ MergeToCustomers <- function(customers, to.merge, col.name.old, col.name.new,
 }
 
 
-CalcOrders <- function(customers, orders, orders.last){
+CalcOrderCounts <- function(customers, orders, orders.last){
   
   CountOrders <- function(customers, orders, order_states, col_name){
     orders.states <- orders[order_state %in% order_states, .N , by=customer_db_id]
@@ -251,7 +251,7 @@ orders.last <- orders[order(order_created_datetime, decreasing = T),
 orders.first <- orders[order(order_created_datetime), .SD[1], by = customer_db_id]
 
 # BEHAVIOURAL
-customers <- CalcOrders(customers, orders, orders.last)
+customers <- CalcOrderCounts(customers, orders, orders.last)
 customers <- CalcOrderDates(customers, orders, orders.last, orders.first)
 customers <- CalcServiceClass(customers, orders, orders.last, orders.first)
 customers <- CalcBasketSegments(customers, orders, orders.first)

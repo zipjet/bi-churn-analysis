@@ -44,14 +44,33 @@ LoadFacilityLocation <- function(){
   write.csv(fac.coords, "data/facilities.csv", row.names = F)
 }
 
+LoadItems <- function(){
+  library(tidyr)
+  
+  basket <- fread("~/powerbi-share/R_outputs/order_basket.csv")
+  
+  product.fields <- c("segmentation", "name.translations", "category", "reference")
+  products <- GetMongoTable("intwash_products", "{}", product.fields)
+  products <- unnest(products, name.translations)
+  products <- get_city(products, "reference")
+  products <- products[!is.na(city)]
+  
+  b <- merge(basket, products[, c("v", "reference", "city")], all.x = T, 
+             by.x = c("items", "city"), by.y = c("v", "city"))
+  
+  itemizations <- GetMongoTable("intwash_external_fulfillment", 
+                                get_time_range_query("createdAt", "2018-01-01"), 
+                                c("search.orderRef", "itemization.items"))
+}
+
 LoadOrderFacitility <- function(){
   source("~/Projects/bi-reporting/etl/operations/orders.R")
-  recleans <- CalcOrders(start.date = "2017-01-01", file = "data/orders.csv")
+  recleans <- CalcOrders(start.date = "2017-01-01", out.file = "data/orders.csv")
 }
 
 LoadReschedules <- function(){
   source("~/Projects/bi-reporting/etl/operations/reschedules.R")
-  reschedules <- CalcReschedules(start.date = "2016-04-01", file = "data/reschedules.csv")
+  reschedules <- CalcReschedules(start.date = "2016-04-01", out.file = "data/reschedules.csv")
 }
 
 LoadHubLocations <- function(){
@@ -183,6 +202,8 @@ GetCity <- function(churn.data){
 
 GetDistanceFromHub <- function(churn.data){
   
+  library(geosphere)
+  
   GetFleet <- function(churn.data){
     source("utils/assign_clusters.R")
     
@@ -258,7 +279,7 @@ LoadData <- function(refresh = F){
 
   if (refresh) {
     loaders <- list(LoadCustomerData, LoadRefunds, LoadOrderFacitility, 
-                    LoadReschedules, LoadHubLocations)
+                    LoadHubLocations, LoadReschedules)
     lapply(loaders, function(f) f())
   }
   

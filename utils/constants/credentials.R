@@ -22,7 +22,7 @@ db_credentials <- list(
       "intwash_orders_reschedules", "intwash_corporate_invoices",
       "intwash_orders_subprocesses", "intwash_corporate_partners",
       "intwash_voucher_items", "intwash_voucher_models",
-      "intwash_voucher_blocks"),
+      "intwash_voucher_blocks", "intwash_products"),
     c("bi_task_predictions", "organisations.areas",
       "organisations.reaches", "organisations.fleets"),
     c("orders"),
