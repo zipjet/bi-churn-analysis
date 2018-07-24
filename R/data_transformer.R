@@ -89,8 +89,14 @@ CalcVoucherUsage <- function(customers, orders, orders.last, orders.first){
     customers, orders.first[, c("customer_db_id", "voucher_channel")], 
     "voucher_channel", "first_order_voucher_channel")
   customers <- MergeToCustomers(
+    customers, orders.first[, c("customer_db_id", "voucher_value")], 
+    "voucher_value", "first_order_voucher_value")
+  customers <- MergeToCustomers(
     customers, orders.last[, c("customer_db_id", "voucher_channel")], 
     "voucher_channel", "last_order_voucher_channel")
+  customers <- MergeToCustomers(
+    customers, orders.last[, c("customer_db_id", "voucher_value")], 
+    "voucher_value", "last_order_voucher_value")
   
   customers$first_order_voucher <- F
   customers[!is.na(first_order_voucher_channel), first_order_voucher := T]
@@ -236,6 +242,17 @@ CalcDistances <- function(customers, orders, orders.last, orders.first){
   return(customers)
 }
 
+CalcRevenue <- function(customers, orders.last, orders.first) {
+  customers <- MergeToCustomers(customers, 
+                                orders.first[, c("customer_db_id", "revenue")],
+                                "revenue", "first_order_revenue")
+  customers <- MergeToCustomers(customers, 
+                                orders.last[, c("customer_db_id", "revenue")],
+                                "revenue", "last_order_revenue")
+  
+  return(customers)
+}
+
 
 library(data.table)
 source("utils/utils.R")
@@ -256,6 +273,7 @@ customers <- CalcOrderDates(customers, orders, orders.last, orders.first)
 customers <- CalcServiceClass(customers, orders, orders.last, orders.first)
 customers <- CalcBasketSegments(customers, orders, orders.first)
 customers <- CalcVoucherUsage(customers, orders, orders.last, orders.first)
+customers <- CalcRevenue(customers, orders.last, orders.first)
 
 # EXPERIENCE
 customers <- CalcRecleans(customers, orders, orders.last)

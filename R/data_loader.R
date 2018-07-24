@@ -242,6 +242,7 @@ GetDistanceFromHub <- function(churn.data){
   return(churn.data)
 }
 
+
 CalcChurnFactor <- function(churn.data){
   # Computes the customer churn factor: churn_factor = recency/frequency
   # where recency is the time in days since last order and frequency is the 
