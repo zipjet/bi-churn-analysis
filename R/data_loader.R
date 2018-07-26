@@ -47,20 +47,40 @@ LoadFacilityLocation <- function(){
 LoadItems <- function(){
   library(tidyr)
   
-  basket <- fread("~/powerbi-share/R_outputs/order_basket.csv")
+  LoadBaskets <- function(){
+    time.query <- get_time_range_query("createdAt", "2018-04-01")
+    baskets <- GetMongoTable("intwash_external_fulfillment",
+                             time.query,
+                             c("search.orderRef", "itemization.items"))
+    baskets[, items := lapply(itemization.items, flatten)]
+    baskets <- unnest(baskets, items)
+    baskets.cols.old <- c("search.orderRef", "quantity", "pricePerUnit", 
+                          "product.reference")
+    baskets.cols.new <- c("order_id", "quantity", "price_per_unit", "product_id")
+    setnames(baskets, baskets.cols.old, baskets.cols.new)
+    baskets <- baskets[, ..baskets.cols.new]
+    
+    write.csv(baskets, "data/baskets.csv", row.names = F)
+  }
   
-  product.fields <- c("segmentation", "name.translations", "category", "reference")
-  products <- GetMongoTable("intwash_products", "{}", product.fields)
-  products <- unnest(products, name.translations)
-  products <- get_city(products, "reference")
-  products <- products[!is.na(city)]
+  LoadProducts <- function() {
+    product.fields <- c("segmentation", "name.translations", "category", "reference")
+    products <- GetMongoTable("intwash_products", "{}", product.fields)
+    products <- unnest(products, name.translations)
+    products.cols.old <- c("segmentation", "category", "reference", "v")
+    products.cols.new <- c("segmentation", "category", "product_id", "product_name")
+    setnames(products, products.cols.old, products.cols.new)
+    products <- products[k == "en", ..products.cols.new]
+    
+    write.csv(products, "data/products.csv", row.names = F)
+  }
   
-  b <- merge(basket, products[, c("v", "reference", "city")], all.x = T, 
-             by.x = c("items", "city"), by.y = c("v", "city"))
+  baskets <- fread("data/baskets.csv")
+  products <- fread("data/products.csv")
   
-  itemizations <- GetMongoTable("intwash_external_fulfillment", 
-                                get_time_range_query("createdAt", "2018-01-01"), 
-                                c("search.orderRef", "itemization.items"))
+  
+  items <- merge(baskets, products, all.x = T, by = "product_id")
+  write.csv(items, "data/items.csv", row.names = F)
 }
 
 LoadOrderFacitility <- function(){

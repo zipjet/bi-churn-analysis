@@ -36,6 +36,12 @@ CalcOrderDates <- function(customers, orders, orders.last, orders.first) {
                                 "order_created_datetime", "last_order_date")
   customers <- MergeToCustomers(customers, orders.first[, c("customer_db_id", "order_created_datetime")],
                                 "order_created_datetime", "first_order_date")
+  
+  orders.second <- orders[order_state == "completed"]
+  orders.second <- orders.second[order(order_created_datetime), .SD[2], by = customer_db_id]
+  customers <- MergeToCustomers(customers, orders.second[, c("customer_db_id", "order_created_datetime")],
+                                "order_created_datetime", "second_order_date")
+  customers[, first_order_recency :=as.Date(second_order_date) - as.Date(first_order_date)]
   return(customers)
 }
 
@@ -280,11 +286,10 @@ customers <- CalcRecleans(customers, orders, orders.last)
 customers <- CalcReschedules(customers, orders)
 customers <- CalcRatings(customers, orders, orders.last, orders.first)
 customers <- CalcRefunds(customers, orders, orders.last)
-customers <- CalcFacility(customers, orders, orders.last, orders.first)
-
 
 ## OPERATIONAL
 customers <- CalcPickUps(customers, orders)
+customers <- CalcFacility(customers, orders, orders.last, orders.first)
 
 # INDIVIDUAL
 customers <- CalcZip(customers, orders, orders.last)
