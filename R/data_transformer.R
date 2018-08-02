@@ -232,8 +232,36 @@ CalcFacility <- function(customers, orders, orders.last, orders.first) {
   return(customers)
 }
 
-CalcDistances <- function(customers, orders, orders.last, orders.first){
+CalcClosestLaundry <- function(customers, orders.last){
   
+  GetClosestLaundry <- function(r){
+    if(is.na(r["order_x"])){
+      rating = -999
+      dist = -999
+    } else {
+      dist.mat = distm(cbind(as.numeric(r["order_y"]), as.numeric(r["order_x"])), 
+                       cbind(laundries$lng, laundries$lat))
+      dist = min(dist.mat)
+      idx = which.min(dist.mat)
+      rating = laundries[idx, "rating"][[1]]
+    }
+    
+    return(list(dist=dist,rating=rating))
+  }
+  
+  orders.coords <- orders.last[, c("customer_db_id", "order_x", "order_y")]
+  orders.coords$laundry <- apply(orders.coords, 1, GetClosestLaundry)
+  orders.coords[, laundry_dist := unlist(lapply(laundry, function(x) x$dist))]
+  orders.coords[, laundry_rating := unlist(lapply(laundry, function(x) x$rating))]
+  
+  customers <- merge(customers, orders.coords[, c("customer_db_id", "laundry_dist", "laundry_rating")],
+                    by = "customer_db_id", all.x = T)
+  
+  return(customers)
+}
+
+CalcDistances <- function(customers, orders, orders.last, orders.first){
+
   avg.dist <- orders[, mean(hub_distance, na.rm = T), by = customer_db_id]
   customers <- MergeToCustomers(customers, avg.dist, "V1", "avg_hub_distance")
   
@@ -293,6 +321,7 @@ customers <- CalcFacility(customers, orders, orders.last, orders.first)
 
 # INDIVIDUAL
 customers <- CalcZip(customers, orders, orders.last)
+customers <- CalcClosestLaundry(customers, orders.last)
 customers <- CalcDistances(customers, orders, orders.last, orders.first)
 
 write.csv(customers, "data/churn_dataset.csv", row.names = F,
