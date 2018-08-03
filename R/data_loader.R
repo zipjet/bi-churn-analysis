@@ -46,21 +46,37 @@ LoadFacilityLocation <- function(){
 
 LoadItems <- function(){
   library(tidyr)
-  
-  LoadBaskets <- function(){
-    time.query <- get_time_range_query("createdAt", "2018-04-01")
-    baskets <- GetMongoTable("intwash_external_fulfillment",
-                             time.query,
-                             c("search.orderRef", "itemization.items"))
-    baskets[, items := lapply(itemization.items, flatten)]
-    baskets <- unnest(baskets, items)
-    baskets.cols.old <- c("search.orderRef", "quantity", "pricePerUnit", 
-                          "product.reference")
-    baskets.cols.new <- c("order_id", "quantity", "price_per_unit", "product_id")
-    setnames(baskets, baskets.cols.old, baskets.cols.new)
-    baskets <- baskets[, ..baskets.cols.new]
+
+  LoadBasketBatch <- function(start.date, end.date){
     
-    write.csv(baskets, "data/baskets.csv", row.names = F)
+    time.query <- get_time_range_query("createdAt", start.date, end.date)
+    baskets.batch <- GetMongoTable("intwash_external_fulfillment", time.query,
+                                   c("search.orderRef", "createdAt", "itemization.items"))
+    baskets.batch[, items := lapply(itemization.items, flatten)]
+    baskets.batch <- unnest(baskets.batch, items)
+    baskets.cols.old <- c("search.orderRef", "createdAt", "quantity", "pricePerUnit", 
+                          "product.reference")
+    baskets.cols.new <- c("order_id", "order_date", "quantity", "price_per_unit", "product_id")
+    setnames(baskets.batch, baskets.cols.old, baskets.cols.new)
+    baskets.batch <- baskets.batch[, ..baskets.cols.new]
+    
+    if (file.exists("data/baskets.csv")){
+      baskets <- fread("data/baskets.csv")
+      write.csv(rbindlist(baskets, baskets.batch), "data/baskets.csv", row.names = F, fileEncoding = 'utf-8')
+    } else {
+      write.csv(baskets.batch, "data/baskets.csv", row.names = F, fileEncoding = 'utf-8')
+    }
+  }
+  
+  LoadBaskets <- function(start.date = "2018-01-01", end.date = Sys.Date()){
+    seq.dates <- seq(as.Date(start.date), as.Date(end.date), by = "month")
+    seq.dates <- append(seq.dates, as.Date(end.date))
+    
+    for (i in seq(1, length(seq.dates) - 1)) {
+      print(seq.dates[i])
+      print(seq.dates[i+1])
+      LoadBasketBatch(seq.dates[i], seq.dates[i+1])
+    }
   }
   
   LoadProducts <- function() {
@@ -72,12 +88,22 @@ LoadItems <- function(){
     setnames(products, products.cols.old, products.cols.new)
     products <- products[k == "en", ..products.cols.new]
     
-    write.csv(products, "data/products.csv", row.names = F)
+    write.csv(products, "data/products.csv", row.names = F, fileEncoding = "utf-8")
+    return(products)
   }
+
+  if (!file.exists("data/baskets.csv")) {
+    baskets.old <- data.table()
+    baskets.max.date <- "2016-12-14"
+  } else {
+    baskets.old <- fread("data/baskets.csv")
+    baskets.max.date <- max(baskets.old[, "order_date"])
+  }
+
+  LoadBaskets(baskets.max.date)
   
   baskets <- fread("data/baskets.csv")
-  products <- fread("data/products.csv")
-  
+  products <- LoadProducts()
   
   items <- merge(baskets, products, all.x = T, by = "product_id")
   write.csv(items, "data/items.csv", row.names = F)

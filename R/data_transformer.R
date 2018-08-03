@@ -234,27 +234,34 @@ CalcFacility <- function(customers, orders, orders.last, orders.first) {
 
 CalcClosestLaundry <- function(customers, orders.last){
   
+  laundries = fread("data/laundries.csv")
+  
   GetClosestLaundry <- function(r){
     if(is.na(r["order_x"])){
-      rating = -999
-      dist = -999
+      return(data.frame())
     } else {
-      dist.mat = distm(cbind(as.numeric(r["order_y"]), as.numeric(r["order_x"])), 
-                       cbind(laundries$lng, laundries$lat))
+      dist.mat = distm(cbind(as.numeric(r["order_y"]), 
+                             as.numeric(r["order_x"])), 
+                       cbind(laundries$lng, 
+                             laundries$lat))
       dist = min(dist.mat)
       idx = which.min(dist.mat)
       rating = laundries[idx, "rating"][[1]]
+      within_1km = sum(dist.mat <= 1000)
+      
+      return(
+        data.frame(laundry_distance = dist,
+                   laundry_rating = rating,
+                   laundry_within_1km = within_1km))
     }
-    
-    return(list(dist=dist,rating=rating))
   }
   
   orders.coords <- orders.last[, c("customer_db_id", "order_x", "order_y")]
   orders.coords$laundry <- apply(orders.coords, 1, GetClosestLaundry)
-  orders.coords[, laundry_dist := unlist(lapply(laundry, function(x) x$dist))]
-  orders.coords[, laundry_rating := unlist(lapply(laundry, function(x) x$rating))]
+  orders.coords <- unnest(orders.coords, laundry)
   
-  customers <- merge(customers, orders.coords[, c("customer_db_id", "laundry_dist", "laundry_rating")],
+  orders.coords <- orders.coords[, -c("order_x", "order_y")]
+  customers <- merge(customers, orders.coords,
                     by = "customer_db_id", all.x = T)
   
   return(customers)
