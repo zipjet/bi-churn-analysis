@@ -92,22 +92,27 @@ LoadItems <- function(){
     setnames(baskets.batch, baskets.cols.old, baskets.cols.new)
     baskets.batch <- baskets.batch[, ..baskets.cols.new]
     
-    if (file.exists("data/baskets.csv")){
-      baskets <- fread("data/baskets.csv")
-      write.csv(rbindlist(baskets, baskets.batch), "data/baskets.csv", row.names = F, fileEncoding = 'utf-8')
-    } else {
-      write.csv(baskets.batch, "data/baskets.csv", row.names = F, fileEncoding = 'utf-8')
-    }
+    return(baskets.batch)
   }
   
   LoadBaskets <- function(start.date = "2018-01-01", end.date = Sys.Date()){
-    seq.dates <- seq(as.Date(start.date), as.Date(end.date), by = "month")
-    seq.dates <- append(seq.dates, as.Date(end.date))
+    
+    if (!file.exists("data/baskets.csv")) {
+      baskets <- data.table()
+      baskets.max.date <- "2016-12-14"
+    } else {
+      baskets <- fread("data/baskets.csv")
+      baskets.max.date <- max(baskets$order_date)
+    }
+  
+    seq.dates <- seq(as.Date(baskets.max.date), Sys.Date(), by = "month")
+    seq.dates <- append(seq.dates, Sys.Date())
     
     for (i in seq(1, length(seq.dates) - 1)) {
-      print(seq.dates[i])
-      print(seq.dates[i+1])
-      LoadBasketBatch(seq.dates[i], seq.dates[i+1])
+      batch <- LoadBasketBatch(seq.dates[i], seq.dates[i+1])
+      batch$order_date <- as.character(batch$order_date)
+      b <- rbind(baskets, batch)
+      write.csv(baskets, "data/baskets.csv", row.names = F, fileEncoding = 'utf-8')
     }
   }
   
@@ -121,21 +126,13 @@ LoadItems <- function(){
     products <- products[k == "en", ..products.cols.new]
     
     write.csv(products, "data/products.csv", row.names = F, fileEncoding = "utf-8")
-    return(products)
   }
-
-  if (!file.exists("data/baskets.csv")) {
-    baskets.old <- data.table()
-    baskets.max.date <- "2016-12-14"
-  } else {
-    baskets.old <- fread("data/baskets.csv")
-    baskets.max.date <- max(baskets.old[, "order_date"])
-  }
-
-  LoadBaskets(baskets.max.date)
+  
+  LoadBaskets()
+  LoadProducts()
   
   baskets <- fread("data/baskets.csv")
-  products <- LoadProducts()
+  products <-fread("data/products.csv")
   
   items <- merge(baskets, products, all.x = T, by = "product_id")
   write.csv(items, "data/items.csv", row.names = F)
@@ -143,7 +140,7 @@ LoadItems <- function(){
 
 LoadOrderFacitility <- function(){
   source("~/Projects/bi-reporting/etl/operations/orders.R")
-  recleans <- CalcOrders(start.date = "2017-01-01", out.file = "data/orders.csv")
+  recleans <- CalcOrders(start.date = "2014-01-01", out.file = "data/orders.csv")
 }
 
 LoadReschedules <- function(){
@@ -345,11 +342,14 @@ LoadData <- function(refresh = F){
   churn.data <- data[order(customer_db_id, order_created_datetime)]
 
   if (refresh) {
+    print("Refreshing data...")
     loaders <- list(LoadCustomerData, LoadRefunds, LoadOrderFacitility, 
-                    LoadHubLocations, LoadReschedules, LoadPunctualityData)
+                    LoadHubLocations, LoadReschedules, LoadPunctualityData,
+                    LoadItems)
     lapply(loaders, function(f) f())
   }
   
+  print("Transforming data...")
   transformations <- c(CalcChurnFactor, GetFacility, GetRatings, GetReschedules, 
                        GetPunctuality, GetVouchers, GetRefunds, GetBaskets, 
                        GetCustomerData, GetCity, GetDistanceFromHub)
