@@ -18,12 +18,11 @@ CalcOrderCounts <- function(customers, orders, orders.last){
     return(customers)
   }
   
-  customers <- CountOrders(customers, orders, c("completed", "reserved"), "valid_orders")
-  customers <- CountOrders(customers, orders, c("processing"), "open_orders")
+  customers <- CountOrders(customers, orders, c("processing", "reserved"), "open_orders")
   customers <- CountOrders(customers, orders, c("canceled"), "canceled_orders")
   customers <- CountOrders(customers, orders, c("payment_error"), "pay_error_orders")
   customers <- CountOrders(customers, orders, c("completed"), "completed_orders")
-  customers[, total_orders := valid_orders + open_orders + canceled_orders + pay_error_orders]
+  customers[, total_orders :=  completed_orders + open_orders + canceled_orders + pay_error_orders]
   customers <- MergeToCustomers(customers, orders.last[, c("customer_db_id", "order_state")], 
                                 "order_state", "last_order_state")
   
@@ -41,7 +40,7 @@ CalcOrderDates <- function(customers, orders, orders.last, orders.first) {
   orders.second <- orders.second[order(order_created_datetime), .SD[2], by = customer_db_id]
   customers <- MergeToCustomers(customers, orders.second[, c("customer_db_id", "order_created_datetime")],
                                 "order_created_datetime", "second_order_date")
-  customers[, first_order_recency :=as.Date(second_order_date) - as.Date(first_order_date)]
+  customers[, first_order_recency := as.Date(second_order_date) - as.Date(first_order_date)]
   return(customers)
 }
 
@@ -50,7 +49,7 @@ CalcServiceClass <- function(customers, orders, orders.last, orders.first){
   cust.class <- dcast(cust.class, `customer_db_id` ~ service_class, value.var = "N")
   cust.class <- data.table(cust.class)
   for (i in names(cust.class))
-    cust.class[is.na(get(i)), (i):=0]
+    cust.class[is.na(get(i)), (i) := 0]
   customers <- merge(customers, cust.class, by = "customer_db_id", all.x = TRUE)
   
   customers <- MergeToCustomers(
@@ -120,7 +119,7 @@ CalcRecleans <- function(customers, orders, orders.last){
                                 "reclean_order", "last_reclean_order")
   customers[is.na(last_reclean_order), last_reclean_order := FALSE]
   customers$reclean_ratio <- 0
-  customers[valid_orders > 0, reclean_ratio := reclean_orders / valid_orders]
+  customers[completed_orders > 0, reclean_ratio := reclean_orders / completed_orders]
   
   return(customers)
 }
@@ -144,7 +143,7 @@ CalcRatings <- function(customers, orders, orders.last, orders.first){
 
   customers <- merge(customers, ratings, all.x = T, by = "customer_db_id")
   customers[is.na(rated_orders), rated_orders := 0]
-  customers[, rated_orders_ratio := rated_orders / (valid_orders + canceled_orders)]
+  customers[, rated_orders_ratio := rated_orders / (completed_orders + canceled_orders)]
   customers[is.na(rated_orders_ratio), rated_orders_ratio := 0]
   
   customers <- MergeToCustomers(customers, 
@@ -294,43 +293,68 @@ CalcRevenue <- function(customers, orders.last, orders.first) {
   return(customers)
 }
 
+CalcPunctuality <- function(customers, orders, orders.last){
+  punct <- orders[punctual == FALSE, .(unpunctual_orders = .N), by = customer_db_id]
+  punct.late <- orders[punctual_mins_DO > 0 | punctual_mins_PU > 0,
+                       .(late_orders = .N), by = customer_db_id]
+  punct.early <- orders[punctual_mins_DO < 0 | punctual_mins_PU < 0,
+                       .(early_orders = .N), by = customer_db_id]
+  
+  customers <- merge(customers, punct.late, by = "customer_db_id", all.x = T)
+  customers <- merge(customers, punct.early, by = "customer_db_id", all.x = T)
+  customers <- merge(customers, punct, all.x = T, by = "customer_db_id")
+  
+  customers[unpunctual_orders > 0 & completed_orders > 0,
+            unpunctual_ratio := unpunctual_orders / completed_orders]
+  
+  punct.last <- orders.last[, c("customer_db_id", "punctual", 
+                                "punctual_mins_ratio_DO", "punctual_mins_ratio_PU")]
+  customers <- merge(customers, punct.last, by = "customer_db_id", all.x = T)
+  
+  
+  return(customers)
+}
 
-library(data.table)
-source("utils/utils.R")
-orders <- fread("data/order_churn_data.csv")
-constant.cols <- c("customer_db_id", "customer_id", "gender", "segment", 
-                   "aov", "recency", "frequency", "churn_factor", "referred", 
-                   "newsletter_optin", "city")
-customers <- orders[city == "London", constant.cols, with = F]
-customers <- customers[!duplicated(customers)]
+TransformData <- function(){
 
-orders.last <- orders[order(order_created_datetime, decreasing = T), 
-                          .SD[1], by = customer_db_id]
-orders.first <- orders[order(order_created_datetime), .SD[1], by = customer_db_id]
-
-# BEHAVIOURAL
-customers <- CalcOrderCounts(customers, orders, orders.last)
-customers <- CalcOrderDates(customers, orders, orders.last, orders.first)
-customers <- CalcServiceClass(customers, orders, orders.last, orders.first)
-customers <- CalcBasketSegments(customers, orders, orders.first)
-customers <- CalcVoucherUsage(customers, orders, orders.last, orders.first)
-customers <- CalcRevenue(customers, orders.last, orders.first)
-
-# EXPERIENCE
-customers <- CalcRecleans(customers, orders, orders.last)
-customers <- CalcReschedules(customers, orders)
-customers <- CalcRatings(customers, orders, orders.last, orders.first)
-customers <- CalcRefunds(customers, orders, orders.last)
-
-## OPERATIONAL
-customers <- CalcPickUps(customers, orders)
-customers <- CalcFacility(customers, orders, orders.last, orders.first)
-
-# INDIVIDUAL
-customers <- CalcZip(customers, orders, orders.last)
-customers <- CalcClosestLaundry(customers, orders.last)
-customers <- CalcDistances(customers, orders, orders.last, orders.first)
-
-write.csv(customers, "data/churn_dataset.csv", row.names = F,
-          fileEncoding = "utf-8")
+  library(data.table)
+  source("utils/utils.R")
+  orders <- fread("data/order_churn_data.csv")
+  constant.cols <- c("customer_db_id", "customer_id", "gender", "segment", 
+                     "aov", "recency", "frequency", "churn_factor", "referred", 
+                     "newsletter_optin", "city")
+  customers <- orders[city == "London", constant.cols, with = F]
+  customers <- customers[!duplicated(customers)]
+  
+  orders.last <- orders[order(order_created_datetime, decreasing = T), 
+                            .SD[1], by = customer_db_id]
+  orders.first <- orders[order(order_created_datetime), .SD[1], by = customer_db_id]
+  
+  # BEHAVIOURAL
+  customers <- CalcOrderCounts(customers, orders, orders.last)
+  customers <- CalcOrderDates(customers, orders, orders.last, orders.first)
+  customers <- CalcServiceClass(customers, orders, orders.last, orders.first)
+  customers <- CalcBasketSegments(customers, orders, orders.first)
+  customers <- CalcVoucherUsage(customers, orders, orders.last, orders.first)
+  customers <- CalcRevenue(customers, orders.last, orders.first)
+  
+  # EXPERIENCE
+  customers <- CalcRecleans(customers, orders, orders.last)
+  customers <- CalcReschedules(customers, orders)
+  customers <- CalcRatings(customers, orders, orders.last, orders.first)
+  customers <- CalcRefunds(customers, orders, orders.last)
+  
+  ## OPERATIONAL
+  customers <- CalcPickUps(customers, orders)
+  customers <- CalcPunctuality(customers, orders, orders.last)
+  customers <- CalcFacility(customers, orders, orders.last, orders.first)
+  
+  # INDIVIDUAL
+  customers <- CalcZip(customers, orders, orders.last)
+  customers <- CalcClosestLaundry(customers, orders.last)
+  customers <- CalcDistances(customers, orders, orders.last, orders.first)
+  
+  write.csv(customers, "data/churn_dataset.csv", row.names = F,
+            fileEncoding = "utf-8")
+}
 

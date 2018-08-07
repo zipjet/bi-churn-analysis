@@ -15,7 +15,7 @@ LoadRefunds <- function(){
 
 LoadCustomerData <- function(){
   cust.fields <- c("reference", "friendReferral.referredCode", "newsletterOptIn",
-                   "corporates")
+                   "corporates", "userAccount.email")
   cust.data <- GetMongoTable("intwash_customers", "{}", cust.fields)
   cust.data[, corporates := as.character(corporates)]
   cust.data[corporates == "character(0)", corporates := NA]
@@ -25,7 +25,7 @@ LoadCustomerData <- function(){
   cust.data[!is.na(friendReferral.referredCode), referred := TRUE]
   cust.data <- cust.data[, -c("corporates", "friendReferral.referredCode")]
   names(cust.data) <- c("customer_db_id", "newsletter_optin", "customer_id",
-                        "corporate", "referred")
+                        "email", "corporate", "referred")
   write.csv(cust.data, "data/customers.csv", row.names = F)
 }
 
@@ -69,9 +69,9 @@ LoadPunctualityData <- function(){
   
   punct[early_mins > 0, early_mins := 0]
   punct[late_mins < 0, late_mins := 0]
-  punct[, unpunctual_mins := round(early_mins + late_mins)]
+  punct[, punctual_mins := round(early_mins + late_mins)]
   
-  punct <- dcast(punct, `order_id` ~ task, value.var=c("driver_db_id", "unpunctual_mins", "timeslot_mins"))
+  punct <- dcast(punct, `order_id` ~ task, value.var=c("driver_db_id", "punctual_mins", "timeslot_mins"))
   
   write.csv(punct, "data/punctuality.csv", row.names = F)
 }
@@ -210,8 +210,10 @@ GetPunctuality <- function(churn.data){
   punctuality <- fread("data/punctuality.csv")
   
   churn.data <- merge(churn.data, punctuality, by = "order_id", all.x = TRUE)
-  churn.data[!is.na(unpunctual_mins_DO) & !is.na(unpunctual_mins_PU), punctual := FALSE]
-  churn.data[unpunctual_mins_DO == 0 & unpunctual_mins_PU == 0, punctual := TRUE]
+  churn.data[!is.na(punctual_mins_DO) & !is.na(punctual_mins_PU), punctual := FALSE]
+  churn.data[punctual_mins_DO == 0 & punctual_mins_PU == 0, punctual := TRUE]
+  churn.data[timeslot_mins_DO > 0, punctual_mins_ratio_DO := punctual_mins_DO / timeslot_mins_DO]
+  churn.data[timeslot_mins_PU > 0, punctual_mins_ratio_PU := punctual_mins_PU / timeslot_mins_PU]
   
   return(churn.data)
 }
@@ -344,8 +346,8 @@ LoadData <- function(refresh = F){
   if (refresh) {
     print("Refreshing data...")
     loaders <- list(LoadCustomerData, LoadRefunds, LoadOrderFacitility, 
-                    LoadHubLocations, LoadReschedules, LoadPunctualityData,
-                    LoadItems)
+                    LoadHubLocations, LoadFacilityLocation, LoadReschedules,
+                    LoadPunctualityData, LoadItems)
     lapply(loaders, function(f) f())
   }
   

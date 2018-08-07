@@ -14,10 +14,12 @@ for (file in files){
   question.idx.end <- which(grepl("feedback|Feedback|remarques", survey.cols))
   question.cols <- survey.cols[question.idx.start:question.idx.end]
   info.cols <- c("Response ID", "Date Submitted", "URL Variable: email", "URL Variable: nps")
+  rename.to <- c("response_id", "date_submitted", "email", "NPS")
   
   cols <- c(info.cols, question.cols)
   print(cols)
   survey <- survey[, ..cols]
+  setnames(survey, info.cols, rename.to)
   survey$file <- file
   
   data <- rbind(data, survey, use.names = F)
