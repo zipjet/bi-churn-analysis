@@ -44,6 +44,38 @@ LoadFacilityLocation <- function(){
   write.csv(fac.coords, "data/facilities.csv", row.names = F)
 }
 
+LoadPunctualityData <- function(){
+  punct.fields <- c("timeslot.from", "timeslot.to", "driver", 
+                    "rendezvousStartDate.date", "reference", "state")
+  
+  pickups <- GetMongoTable("intwash_driver_pickups", "{}", punct.fields)
+  dropoffs <- GetMongoTable("intwash_driver_deliveries", "{}", punct.fields)
+  
+  pickups$task <- "PU"
+  dropoffs$task <- "DO"
+  punct <- rbind(pickups, dropoffs)
+  
+  rename.from <- c("_id", "timeslot.from", "timeslot.to", 
+                   "rendezvousStartDate.date", "driver", "reference")
+  rename.to <- c("task_db_id", "timeslot_from", "timeslot_to", 
+                 "rendezvous_start", "driver_db_id", "order_id")
+  setnames(punct, rename.from, rename.to)
+  
+  punct <- punct[, order_id := substr(order_id, 1, nchar(order_id) - 3)]
+  
+  punct <- punct[, timeslot_mins := difftime(timeslot_to, timeslot_from, units="mins")]
+  punct <- punct[, early_mins := difftime(rendezvous_start, timeslot_from, units="mins")]
+  punct <- punct[, late_mins := difftime(rendezvous_start, timeslot_to, units="mins")]
+  
+  punct[early_mins > 0, early_mins := 0]
+  punct[late_mins < 0, late_mins := 0]
+  punct[, unpunctual_mins := round(early_mins + late_mins)]
+  
+  punct <- dcast(punct, `order_id` ~ task, value.var=c("driver_db_id", "unpunctual_mins", "timeslot_mins"))
+  
+  write.csv(punct, "data/punctuality.csv", row.names = F)
+}
+
 LoadItems <- function(){
   library(tidyr)
 
@@ -178,22 +210,11 @@ GetReschedules <- function(churn.data){
 }
 
 GetPunctuality <- function(churn.data){
-  punctuality <- fread("~/powerbi-share/R_outputs/punctuality.csv")
-  
-  punctuality[, order_id := substr(reference, 1, nchar(reference)-3)]
-  setnames(punctuality, c("late_by_more_than_one_min", "early_by_more_than_five_min"), c("late", "early"))
-  punctuality <- punctuality[, c("order_id", "task_type", "late", "early")]
-  
-  punctuality <- melt(punctuality, id.vars = c("order_id", "task_type"), measure.vars = c("late", "early"))
-  punctuality[variable == "early", value := -value]
-  punctuality <- punctuality[value != 0, -c("variable")]
-  punctuality <- dcast(punctuality, `order_id` ~ task_type, value.var = "value")
-  names(punctuality) <- c("order_id", "dropoff_punctuality", "pickup_punctuality")
+  punctuality <- fread("data/punctuality.csv")
   
   churn.data <- merge(churn.data, punctuality, by = "order_id", all.x = TRUE)
-  churn.data$punctual <- TRUE
-  churn.data[!is.na(dropoff_punctuality) | !is.na(pickup_punctuality), punctual := FALSE]
-  churn.data <- churn.data[, -c("dropoff_punctuality", "pickup_punctuality")]
+  churn.data[!is.na(unpunctual_mins_DO) & !is.na(unpunctual_mins_PU), punctual := FALSE]
+  churn.data[unpunctual_mins_DO == 0 & unpunctual_mins_PU == 0, punctual := TRUE]
   
   return(churn.data)
 }
@@ -232,7 +253,6 @@ GetBaskets <- function(churn.data) {
 
   return(churn.data)
 }
-
 
 GetCustomerData <- function(churn.data) {
   
@@ -326,7 +346,7 @@ LoadData <- function(refresh = F){
 
   if (refresh) {
     loaders <- list(LoadCustomerData, LoadRefunds, LoadOrderFacitility, 
-                    LoadHubLocations, LoadReschedules)
+                    LoadHubLocations, LoadReschedules, LoadPunctualityData)
     lapply(loaders, function(f) f())
   }
   
