@@ -4,3 +4,6 @@
 /data/
 /outputs/
 /reports/
+/python/.ipynb_checkpoints/
+/python/scripts/__pycache__/
+/.idea/
