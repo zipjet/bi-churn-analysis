@@ -62,6 +62,24 @@ CalcServiceClass <- function(customers, orders, orders.last, orders.first){
   return(customers)
 }
 
+CalcSoftwareType <- function(customers, orders, orders.last, orders.first){
+  cust.soft <- orders[, .N, by = c("customer_db_id", "software_type")]
+  cust.soft <- dcast(cust.soft, `customer_db_id` ~ software_type, value.var = "N")
+  cust.soft <- data.table(cust.soft)
+  for (i in names(cust.soft))
+    cust.soft[is.na(get(i)), (i) := 0]
+  customers <- merge(customers, cust.soft, by = "customer_db_id", all.x = TRUE)
+  
+  customers <- MergeToCustomers(
+    customers, orders.last[, c("customer_db_id", "software_type")], 
+    "software_type", "last_order_software_type")
+  customers <- MergeToCustomers(
+    customers, orders.first[, c("customer_db_id", "software_type")], 
+    "software_type", "first_order_software_type")
+  
+  return(customers)
+}
+
 CalcBasketSegments <- function(customers, orders, orders.first){
   product.cols <- c("product_LA", "product_HH", "product_DC", "product_WF")
   basket.segments <- orders[, lapply(.SD, sum), by = customer_db_id, 
@@ -124,13 +142,19 @@ CalcRecleans <- function(customers, orders, orders.last){
   return(customers)
 }
 
-CalcReschedules <- function(customers, orders){
+CalcReschedules <- function(customers, orders, orders.last){
   # reschedules
   reschedules <- orders[
     , .(internal_reschedules = sum(internal_reschedule, na.rm = T), 
         customer_reschedules = sum(customer_reschedule, na.rm = T)), 
     by = customer_db_id]
   customers <- merge(customers, reschedules, all.x = T, by = "customer_db_id")
+  
+  customers <- MergeToCustomers(customers, orders.last[, c("customer_db_id", "internal_reschedule")], 
+                                "internal_reschedule", "last_order_int_reschedules")
+  customers[last_order_int_reschedules > 1, last_order_rescheduled := T]
+  customers[last_order_int_reschedules == 0, last_order_rescheduled := F]
+  
   
   return(customers)
 }
@@ -233,6 +257,8 @@ CalcFacility <- function(customers, orders, orders.last, orders.first) {
 
 CalcClosestLaundry <- function(customers, orders.last){
   
+  library(geosphere)
+  
   laundries = fread("data/laundries.csv")
   
   GetClosestLaundry <- function(r){
@@ -290,6 +316,8 @@ CalcRevenue <- function(customers, orders.last, orders.first) {
                                 orders.last[, c("customer_db_id", "revenue")],
                                 "revenue", "last_order_revenue")
   
+  customers[, last_order_revenue_diff := (last_order_revenue - aov)/aov]
+  
   return(customers)
 }
 
@@ -323,7 +351,7 @@ TransformData <- function(){
   constant.cols <- c("customer_db_id", "customer_id", "gender", "segment", 
                      "aov", "recency", "frequency", "churn_factor", "referred", 
                      "newsletter_optin", "city")
-  customers <- orders[city == "London", constant.cols, with = F]
+  customers <- orders[, constant.cols, with = F]
   customers <- customers[!duplicated(customers)]
   
   orders.last <- orders[order(order_created_datetime, decreasing = T), 
@@ -334,13 +362,14 @@ TransformData <- function(){
   customers <- CalcOrderCounts(customers, orders, orders.last)
   customers <- CalcOrderDates(customers, orders, orders.last, orders.first)
   customers <- CalcServiceClass(customers, orders, orders.last, orders.first)
+  customers <- CalcSoftwareType(customers, orders, orders.last, orders.first)
   customers <- CalcBasketSegments(customers, orders, orders.first)
   customers <- CalcVoucherUsage(customers, orders, orders.last, orders.first)
   customers <- CalcRevenue(customers, orders.last, orders.first)
   
   # EXPERIENCE
   customers <- CalcRecleans(customers, orders, orders.last)
-  customers <- CalcReschedules(customers, orders)
+  customers <- CalcReschedules(customers, orders, orders.last)
   customers <- CalcRatings(customers, orders, orders.last, orders.first)
   customers <- CalcRefunds(customers, orders, orders.last)
   
@@ -352,7 +381,7 @@ TransformData <- function(){
   # INDIVIDUAL
   customers <- CalcZip(customers, orders, orders.last)
   customers <- CalcClosestLaundry(customers, orders.last)
-  customers <- CalcDistances(customers, orders, orders.last, orders.first)
+  # customers <- CalcDistances(customers, orders, orders.last, orders.first)
   
   write.csv(customers, "data/churn_dataset.csv", row.names = F,
             fileEncoding = "utf-8")

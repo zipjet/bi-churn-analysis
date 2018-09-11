@@ -99,7 +99,7 @@ LoadItems <- function(){
     
     if (!file.exists("data/baskets.csv")) {
       baskets <- data.table()
-      baskets.max.date <- "2016-12-14"
+      baskets.max.date <- "2014-12-14"
     } else {
       baskets <- fread("data/baskets.csv")
       baskets.max.date <- max(baskets$order_date)
@@ -111,7 +111,7 @@ LoadItems <- function(){
     for (i in seq(1, length(seq.dates) - 1)) {
       batch <- LoadBasketBatch(seq.dates[i], seq.dates[i+1])
       batch$order_date <- as.character(batch$order_date)
-      b <- rbind(baskets, batch)
+      baskets <- rbind(baskets, batch)
       write.csv(baskets, "data/baskets.csv", row.names = F, fileEncoding = 'utf-8')
     }
   }
@@ -140,12 +140,12 @@ LoadItems <- function(){
 
 LoadOrderFacitility <- function(){
   source("~/Projects/bi-reporting/etl/operations/orders.R")
-  recleans <- CalcOrders(start.date = "2014-01-01", out.file = "data/orders.csv")
+  recleans <- CalcOrders(start.date = "2014-01-01", out.fi = "data/orders.csv")
 }
 
 LoadReschedules <- function(){
   source("~/Projects/bi-reporting/etl/operations/reschedules.R")
-  reschedules <- CalcReschedules(start.date = "2016-04-01", out.file = "data/reschedules.csv")
+  reschedules <- CalcReschedules(start.date = "2016-04-01", out.fi = "data/reschedules.csv")
 }
 
 LoadHubLocations <- function(){
@@ -321,7 +321,7 @@ CalcChurnFactor <- function(churn.data){
              by = customer_db_id]
   churn.data[frequency != 0, churn_factor := recency/frequency, 
              by = customer_db_id]
-  churn.data[frequency == 0, churn_factor := 1.0]
+  churn.data[frequency == 0, churn_factor := recency/60]
   
   return(churn.data)
 }
@@ -347,15 +347,17 @@ LoadData <- function(refresh = F){
     print("Refreshing data...")
     loaders <- list(LoadCustomerData, LoadRefunds, LoadOrderFacitility, 
                     LoadHubLocations, LoadFacilityLocation, LoadReschedules,
-                    LoadPunctualityData, LoadItems)
+                    LoadPunctualityData)
     lapply(loaders, function(f) f())
   }
   
   print("Transforming data...")
   transformations <- c(CalcChurnFactor, GetFacility, GetRatings, GetReschedules, 
                        GetPunctuality, GetVouchers, GetRefunds, GetBaskets, 
-                       GetCustomerData, GetCity, GetDistanceFromHub)
+                       GetCustomerData, GetCity)
   res <- lapply(transformations, function(f) churn.data <<- f(churn.data))
+
+
 
   churn.data <- churn.data[!duplicated(churn.data)]
   write.csv(churn.data, out.file, row.names = F, fileEncoding = "utf-8")
