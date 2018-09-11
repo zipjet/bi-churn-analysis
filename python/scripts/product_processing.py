@@ -3,7 +3,8 @@ import numpy as np
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
-def get_text_similarities(products, product_types):
+
+def _get_text_similarities(products, product_types):
     """
     Runs a CountVectorizer to find text similarities between the list of product and product_types
     :param products: list of original product names
@@ -22,7 +23,7 @@ def get_text_similarities(products, product_types):
     return similarities
 
 
-def get_product_types(products, product_types):
+def _get_product_types(products, product_types):
     """
     For each product in product list find the best matching product_type based on text similarity
     :param products: list of original product names
@@ -31,7 +32,7 @@ def get_product_types(products, product_types):
     """
 
     # get text similarities
-    similarities = get_text_similarities(products, product_types)
+    similarities = _get_text_similarities(products, product_types)
 
     # for each product get the index of product_type that is the best match
     best_matches = similarities.argmax(axis=1)
@@ -42,17 +43,24 @@ def get_product_types(products, product_types):
     return products_grouped
 
 
-def main():
-    df_products = pd.read_csv("../data/products.csv")  # df with IDs and english names for all products
+def group_products(save_path='../data/product_groups.csv'):
+    # load product names
+    df_products = pd.read_csv("../data/products.csv")
     products = df_products.product_name.sort_values().unique().tolist()
 
+    # load product types
+    # https://docs.google.com/spreadsheets/d/1bWyhdLxkGqO6MsCuwc6aaj5ZIPTVXG14AJ_sOKh2-gQ/edit?usp=drive_web&ouid=109217700245759892602
     df_itemization = pd.read_csv("../data/itemization.csv")
-    df_itemization['product_type_sort'] = df_itemization.product_type_category + '_' + df_itemization.product_type
     product_types = df_itemization.product_type.unique().tolist()
 
-    product_groups = get_product_types(products, product_types)
+    product_groups = _get_product_types(products, product_types)
 
-    print('done')
+    df_products = pd.DataFrame.from_dict(product_groups, orient='index').reset_index()
+    df_products.columns = ['product_name', 'product_type']
+    df_products = df_products.merge(df_itemization, on='product_type')
+
+    print('Writing grouped products to', save_path)
+    df_products.to_csv(save_path, index=False)
 
 if __name__ == '__main__':
-    main()
+    group_products()

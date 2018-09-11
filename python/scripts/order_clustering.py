@@ -1,0 +1,58 @@
+import pandas as pd
+from sklearn.externals import joblib
+from sklearn.cluster import KMeans
+
+
+def kmeans_clustering(X, n_clusters=10, dump_path=None):
+    kmeans = KMeans(n_clusters=n_clusters)
+    kmeans.fit(X)
+
+    if dump_path:
+        joblib.dump(kmeans, dump_path)
+
+    return kmeans
+
+
+def load_cluster_model(model_path):
+    kmeans = joblib.load(model_path)
+    return kmeans
+
+
+def prepare_dummies(items_csv_path, products_csv_path):
+
+    df = pd.read_csv(items_csv_path) # df with items per order
+    df_products = pd.read_csv(products_csv_path)
+    df = df.merge(df_products, how='left', on='product_name')
+
+    # for each customer and product_group get how many orders this group was included in and in what quantity
+    df_group = df.groupby(['order_id', 'product_group'])\
+                .agg({'quantity': 'sum'})\
+                .reset_index()\
+                .set_index('order_id')
+
+    # get dummy values of customers and product_groups
+    df_dumm = pd.get_dummies(df_group['product_group'])
+    df_dumm = df_dumm.reset_index().groupby(['order_id']).max()
+
+    return df_dumm
+
+
+def cluster_orders(items_csv_path, products_csv_path, save_csv_path,
+                   n_clusters=10, load_model_path=None, save_model_path=None):
+
+    df = prepare_dummies(items_csv_path, products_csv_path)
+    if load_model_path:
+        kmeans = load_cluster_model(load_model_path)
+    else:
+        kmeans = kmeans_clustering(df.values, n_clusters=n_clusters, dump_path=save_model_path)
+
+    clusters = kmeans.labels_.tolist()
+    centers = kmeans.cluster_centers_
+
+    df_centers = pd.DataFrame(data=centers, columns=df.columns)
+
+    df['cluster'] = clusters
+    df = df.reset_index()[['order_id', 'cluster']]
+    df.to_csv(save_csv_path, index=False)
+
+    return df, df_centers
