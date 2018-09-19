@@ -307,6 +307,12 @@ GetDistanceFromHub <- function(churn.data){
   return(churn.data)
 }
 
+GetClusters <- function(churn.data){
+  clusters <- fread("data/clustered_orders.csv")
+  churn.data <- merge(churn.data, clusters, by="order_id", all.x=T)
+  
+  return(churn.data)
+}
 
 CalcChurnFactor <- function(churn.data){
   # Computes the customer churn factor: churn_factor = recency/frequency
@@ -322,6 +328,15 @@ CalcChurnFactor <- function(churn.data){
   churn.data[frequency != 0, churn_factor := recency/frequency, 
              by = customer_db_id]
   churn.data[frequency == 0, churn_factor := recency/60]
+  
+  churn.data[, days_since_last_order := 
+               as.integer(as.Date(order_created_datetime)) - 
+               shift(as.integer(as.Date(order_created_datetime))), by = customer_db_id]   
+  
+  churn.data[, days_until_next_order := 
+               shift(as.integer(as.Date(order_created_datetime)), type = "lead")
+             - as.integer(as.Date(order_created_datetime)), 
+               by = customer_db_id]   
   
   return(churn.data)
 }
@@ -354,7 +369,7 @@ LoadData <- function(refresh = F){
   print("Transforming data...")
   transformations <- c(CalcChurnFactor, GetFacility, GetRatings, GetReschedules, 
                        GetPunctuality, GetVouchers, GetRefunds, GetBaskets, 
-                       GetCustomerData, GetCity)
+                       GetCustomerData, GetCity, GetClusters)
   res <- lapply(transformations, function(f) churn.data <<- f(churn.data))
 
 

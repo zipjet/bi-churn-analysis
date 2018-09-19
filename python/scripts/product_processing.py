@@ -43,14 +43,14 @@ def _get_product_types(products, product_types):
     return products_grouped
 
 
-def group_products(save_path='../data/product_groups.csv'):
+def group_products(products_path, product_types_path, save_path='../../data/product_groups.csv'):
     # load product names
-    df_products = pd.read_csv("../data/products.csv")
+    df_products = pd.read_csv(products_path)
     products = df_products.product_name.sort_values().unique().tolist()
 
     # load product types
     # https://docs.google.com/spreadsheets/d/1bWyhdLxkGqO6MsCuwc6aaj5ZIPTVXG14AJ_sOKh2-gQ/edit?usp=drive_web&ouid=109217700245759892602
-    df_itemization = pd.read_csv("../data/itemization.csv")
+    df_itemization = pd.read_csv(product_types_path)
     product_types = df_itemization.product_type.unique().tolist()
 
     product_groups = _get_product_types(products, product_types)
@@ -63,4 +63,4 @@ def group_products(save_path='../data/product_groups.csv'):
     df_products.to_csv(save_path, index=False)
 
 if __name__ == '__main__':
-    group_products()
+    group_products('../../data/products.csv', '../../data/product_types.csv')

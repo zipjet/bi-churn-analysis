@@ -18,6 +18,25 @@ def load_cluster_model(model_path):
     return kmeans
 
 
+def get_cluster_names(df_centers, threshold=0.5):
+
+    cluster_names = {}
+
+    for cluster in df_centers.index:
+        names = []
+        new_threshold = threshold
+
+        while len(names) == 0:
+            col = df_centers.T[cluster].sort_values(ascending=False)
+            col_perc = col / col.sum()
+            mask = (col_perc > new_threshold)
+            names = col.loc[mask].index.tolist()
+            new_threshold = new_threshold - 0.1
+
+        cluster_names[cluster] = '+'.join(names)
+
+    return cluster_names
+
 def prepare_dummies(items_csv_path, products_csv_path):
 
     df = pd.read_csv(items_csv_path) # df with items per order
@@ -50,9 +69,21 @@ def cluster_orders(items_csv_path, products_csv_path, save_csv_path,
     centers = kmeans.cluster_centers_
 
     df_centers = pd.DataFrame(data=centers, columns=df.columns)
+    cluster_names = get_cluster_names(df_centers)
+    df_centers['cluster_name'] = df_centers.index.map(cluster_names)
 
     df['cluster'] = clusters
-    df = df.reset_index()[['order_id', 'cluster']]
+    df['cluster_name'] = df.cluster.map(cluster_names)
+    df = df.reset_index()[['order_id', 'cluster', 'cluster_name']]
     df.to_csv(save_csv_path, index=False)
 
-    return df, df_centers
+    return kmeans, df, df_centers
+
+if __name__ == '__main__':
+    products_path = '../../data/product_groups.csv'
+    items_path = '../../data/items.csv'
+    save_path = '../../data/clustered_orders.csv'
+
+    load_model = '../../data/models/orders_clf.pkl'
+
+    cluster_orders(items_path, products_path, save_path, load_model_path=load_model)

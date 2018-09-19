@@ -343,10 +343,39 @@ CalcPunctuality <- function(customers, orders, orders.last){
   return(customers)
 }
 
+CalcClusters <- function(customers, orders){
+  
+  clusters <- orders[!is.na(cluster), c("customer_db_id", "cluster")]
+  clusters <- dcast(clusters, `customer_db_id` ~ cluster)
+  
+  cluster.cols <- names(clusters)[2:length(names(clusters))]
+  cluster.cols <- unlist(lapply(cluster.cols, function(x) paste0('cluster_', x)))
+  names(clusters) <-  c("customer_db_id", cluster.cols)
+  
+  clusters <- cbind(clusters[, "customer_db_id"],
+                    prop.table(data.matrix(clusters[, ..cluster.cols]), margin=1))
+  
+  customers <- merge(customers, clusters, by="customer_db_id", all.x = T)
+  
+  # first order cluster
+  orders.first.completed <- orders[order_state == "completed" 
+                                   & order(order_created_datetime), 
+                                   .SD[1], by = customer_db_id]
+  customers <- MergeToCustomers(customers, 
+                                orders.first.completed[, c("customer_db_id", "cluster")],
+                                "cluster",
+                                "first_order_cluster")
+  
+}
+
 TransformData <- function(){
 
   library(data.table)
+  library(tidyr)
+  
   source("utils/utils.R")
+  
+  
   orders <- fread("data/order_churn_data.csv")
   constant.cols <- c("customer_db_id", "customer_id", "gender", "segment", 
                      "aov", "recency", "frequency", "churn_factor", "referred", 
@@ -366,6 +395,7 @@ TransformData <- function(){
   customers <- CalcBasketSegments(customers, orders, orders.first)
   customers <- CalcVoucherUsage(customers, orders, orders.last, orders.first)
   customers <- CalcRevenue(customers, orders.last, orders.first)
+  customers <- CalcClusters(customers, orders)
   
   # EXPERIENCE
   customers <- CalcRecleans(customers, orders, orders.last)
