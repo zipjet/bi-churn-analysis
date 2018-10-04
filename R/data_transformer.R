@@ -14,8 +14,8 @@ MergeFirstAndLastOrder <- function(customers, orders) {
                   "voucher_channel", "voucher_used", "voucher_value", 
                   "voucher_revenue_ratio", "revenue", "reclean_order",
                   "customer_rescheduled", "internal_rescheduled", "rating",
-                  "refund", "refund_request", "pickup_zip", "fac_name",
-                  "punctual")
+                  "refund_request", "refund_approved", "refund_type", "pickup_zip", 
+                  "fac_name", "punctual_order")
   
   orders.last <- orders[order(order_created_datetime, decreasing = T), 
                         .SD[1], by = customer_db_id]
@@ -149,13 +149,16 @@ CalcRatings <- function(customers, orders){
 }
 
 CalcRefunds <- function(customers, orders){
-  refunds.success <- orders[refund == "SUCCESS", .(refunds_success = .N), 
+  refunds.success <- orders[refund_approved == T, .(refund_approved = .N), 
                             by = customer_db_id]
   customers <- merge(customers, refunds.success, all.x = T, by = "customer_db_id")
-  refunds.unsuccess <- orders[refund == "NO SUCCESS", .(refunds_unsuccess = .N),
+  refunds.unsuccess <- orders[refund_approved == F, .(refund_not_approved = .N),
                               by = customer_db_id]
   customers <- merge(customers, refunds.unsuccess, all.x = T, by = "customer_db_id")
-
+  refunds.request <- orders[refund_request == T, .(refund_requests = .N),
+                              by = customer_db_id]
+  customers <- merge(customers, refunds.request, all.x = T, by = "customer_db_id")
+  
   return(customers)  
 }
 
@@ -242,10 +245,10 @@ CalcRevenue <- function(customers, orders) {
 }
 
 CalcPunctuality <- function(customers, orders){
-  punct <- orders[punctual == FALSE, .(unpunctual_orders = .N), by = customer_db_id]
-  punct.late <- orders[punctual_mins_DO > 0 | punctual_mins_PU > 0,
+  punct <- orders[punctual_order == FALSE, .(unpunctual_orders = .N), by = customer_db_id]
+  punct.late <- orders[delay_mins_DO > 0 | delay_mins_PU > 0,
                        .(late_orders = .N), by = customer_db_id]
-  punct.early <- orders[punctual_mins_DO < 0 | punctual_mins_PU < 0,
+  punct.early <- orders[delay_mins_DO < 0 | delay_mins_PU < 0,
                        .(early_orders = .N), by = customer_db_id]
   
   customers <- merge(customers, punct.late, by = "customer_db_id", all.x = T)
@@ -319,7 +322,7 @@ TransformData <- function(){
                        CalcSoftwareType, CalcBasketSegments, CalcVoucherUsage,
                        CalcRevenue, CalcClusters, 
                        CalcRecleans, CalcReschedules, CalcRatings, CalcRefunds,
-                       CalcPickUps, CalcPunctuality, CalcClosestLaundry)
+                       CalcPickUps, CalcPunctuality, CalcClosestLaundry, GetNPS)
   res <- lapply(transformations, function(f) customers <<- f(customers, orders))
   
   write.csv(customers, "data/churn_dataset.csv", row.names = F,

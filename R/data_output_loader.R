@@ -47,13 +47,10 @@ GetReschedules <- function(churn.data){
 
 GetPunctuality <- function(churn.data){
   punctuality <- fread("data/input/punctuality.csv")
+  punctuality <- punctuality[, c("order_id", "driver_db_id_DO", "driver_db_id_PU", 
+                                 "delay_mins_PU", "delay_mins_DO", "punctual_5min_DO", "punctual_5min_PU", "punctual_order")]
   
   churn.data <- merge(churn.data, punctuality, by = "order_id", all.x = TRUE)
-  churn.data[!is.na(punctual_mins_DO) & !is.na(punctual_mins_PU), punctual := FALSE]
-  churn.data[punctual_mins_DO == 0 & punctual_mins_PU == 0, punctual := TRUE]
-  churn.data[timeslot_mins_DO > 0, punctual_mins_ratio_DO := punctual_mins_DO / timeslot_mins_DO]
-  churn.data[timeslot_mins_PU > 0, punctual_mins_ratio_PU := punctual_mins_PU / timeslot_mins_PU]
-  
   return(churn.data)
 }
 
@@ -76,14 +73,6 @@ GetRefunds <- function(churn.data) {
   
   refunds <- fread("data/input/refunds.csv")
   churn.data <- merge(churn.data, refunds, by = "order_id", all.x = TRUE)
-  # set false only for orders since refund tracking is in DB
-  churn.data[order_created_datetime >= "2017-03-06" & is.na(refund), 
-             "refund" := "NO REQUEST"]
-  churn.data[order_created_datetime < "2017-03-06", refund := "UNKNOWN"]
-  
-  churn.data <- churn.data[refund == "NO REQUEST", refund_request := FALSE]
-  churn.data <- churn.data[refund %in% c("SUCCESS", "NO SUCCESS"),
-                           refund_request := TRUE]
   
   return(churn.data)
 }

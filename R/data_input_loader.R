@@ -1,19 +1,25 @@
 LoadRefunds <- function(){
-  refunds.fields <- c("reference", "type", "state", "createdAt")
+  refunds.fields <- c("reference", "type", "state", "createdAt", "booking.typeOfRefund",
+                      "booking.liabilityOfRefund")
   refunds.query <- '{"type": {"$in": ["REFUND_MANUAL", "REFUND_CREDITS", "REFUND_ADYEN"]}}'
   refunds <- GetMongoTable("intwash_orders_subprocesses", query = refunds.query, 
                            fields = refunds.fields)
-  refunds$refund <- "NO SUCCESS"
-  refunds[state %in% c("approved", "completed"), refund := "SUCCESS"]
+  refunds <- setnames(refunds, c("booking.typeOfRefund", "booking.liabilityOfRefund"),
+                      c("refund_type", "refund_liability"))
+  
+  refunds$refund_request <- T
+  refunds$refund_approved <- F
+  refunds[state %in% c("approved", "completed"), refund_approved := T]
   refunds[, order_id := substr(refunds$reference, 0, nchar(refunds$reference)-4)]
   refunds <- refunds[order(createdAt), .SD[.N], by = order_id]
-  refunds <- refunds[, c("order_id", "refund")]
   
+  refunds <- refunds[, c("order_id", "refund_liability", "refund_type", 
+                         "refund_request", "refund_approved")]
   write.csv(refunds, "data/input/refunds.csv", row.names = F)
 }
 
 
-LoadCustomerData <- function(){
+LLoadCustomerData <- function(){
   cust.fields <- c("reference", "friendReferral.referredCode", "newsletterOptIn",
                    "corporates", "userAccount.email")
   cust.data <- GetMongoTable("intwash_customers", "{}", cust.fields)
@@ -70,9 +76,14 @@ LoadPunctuality <- function(){
   
   punct[early_mins > 0, early_mins := 0]
   punct[late_mins < 0, late_mins := 0]
-  punct[, punctual_mins := round(early_mins + late_mins)]
+  punct[, delay_mins := round(early_mins + late_mins)]
   
-  punct <- dcast(punct, `order_id` ~ task, value.var=c("driver_db_id", "punctual_mins", "timeslot_mins"))
+  punct[!is.na(delay_mins), punctual_5min := F]
+  punct[delay_mins < 5 & delay_mins > -5, punctual_5min := T]
+  
+  punct <- dcast(punct, `order_id` ~ task, value.var=c("driver_db_id", "delay_mins", "punctual_5min", "timeslot_mins"))
+  punct[punctual_5min_DO & punctual_5min_PU, punctual_order := T]
+  punct[!punctual_5min_DO | !punctual_5min_PU, punctual_order := F]
   
   write.csv(punct, "data/input/punctuality.csv", row.names = F)
 }
@@ -134,7 +145,8 @@ LoadItems <- function(){
   items <- merge(baskets, products, all.x = T, by = "product_id")
   
   product.groups <- fread("data/input/product_groups.csv")
-  items <- merge(items, product.groups, by = "product_name", all.x = T)
+  product.groups <- product.groups[, c("product_id", "product_type", "product_group")]
+  items <- merge(items, product.groups, by = "product_id", all.x = T)
   
   write.csv(items, "data/input/items.csv", row.names = F)
 }
