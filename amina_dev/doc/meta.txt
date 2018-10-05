@@ -1,0 +1,6 @@
+# order_id
+# customer_db_id
+# revenue
+# voucher_value
+# basket_cluster
+# marketing_channel
