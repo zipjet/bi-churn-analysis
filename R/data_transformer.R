@@ -304,14 +304,19 @@ CalcClusters <- function(customers, orders){
   
 }
 
-TransformData <- function(){
+TransformData <- function(load.data=F){
 
   library(data.table)
   library(tidyr)
   
   source("utils/utils.R")
   
+  if (load.data) {
+    source("R/data_output_loader.R")
+    LoadData(refresh=T)
+  }
   
+  print("Transforming Data...")
   orders <- fread("data/order_churn_data.csv")
   constant.cols <- c("customer_db_id", "customer_id", "gender", "segment", "email",
                      "aov", "recency", "frequency", "churn_factor", "referred", 

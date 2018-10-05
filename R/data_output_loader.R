@@ -204,7 +204,7 @@ LoadData <- function(refresh = F){
     LoadInputData()
   }
   
-  print("Transforming data...")
+  print("Loading data...")
   transformations <- c(CalcChurnFactor, GetFacility, GetVouchers,
                        GetRatings, GetReschedules, GetPunctuality, GetRefunds, 
                        GetBaskets, GetCustomerData, GetCity, GetClusters)

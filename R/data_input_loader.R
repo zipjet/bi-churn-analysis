@@ -19,7 +19,7 @@ LoadRefunds <- function(){
 }
 
 
-LLoadCustomerData <- function(){
+LoadCustomerData <- function(){
   cust.fields <- c("reference", "friendReferral.referredCode", "newsletterOptIn",
                    "corporates", "userAccount.email")
   cust.data <- GetMongoTable("intwash_customers", "{}", cust.fields)
