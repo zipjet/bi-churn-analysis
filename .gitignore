@@ -8,3 +8,4 @@
 /python/scripts/__pycache__/
 /.idea/
 *.csv
+*.DS_Store
