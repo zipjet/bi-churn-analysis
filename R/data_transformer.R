@@ -227,7 +227,7 @@ CalcClosestLaundry <- function(customers, orders){
   orders.last <- orders[order(order_created_datetime, decreasing = T), 
                         .SD[1], by = customer_db_id]
   
-  orders.coords <- orders.last[, c("customer_db_id", "order_x", "order_y")]
+  orders.coords <- orders.last[!is.na(order_x), c("customer_db_id", "order_x", "order_y")]
   orders.coords$laundry <- apply(orders.coords, 1, GetClosestLaundry)
   orders.coords <- unnest(orders.coords, laundry)
   

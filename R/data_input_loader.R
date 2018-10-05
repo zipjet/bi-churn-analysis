@@ -112,9 +112,15 @@ LoadItems <- function(){
   
   LoadBaskets <- function(start.date = "2017-01-01", end.date = Sys.Date()){
     
-    baskets <- data.table()
+    if (!file.exists("data/input/baskets.csv")) {
+      baskets <- data.table()
+      baskets.max.date <- start.date
+    } else {
+      baskets <- fread("data/input/baskets.csv")
+      baskets.max.date <- max(baskets$order_date)
+    }
     
-    seq.dates <- seq(as.Date(start.date), Sys.Date(), by = "month")
+    seq.dates <- seq(as.Date(baskets.max.date), Sys.Date(), by = "month")
     seq.dates <- append(seq.dates, Sys.Date())
     
     for (i in seq(1, length(seq.dates) - 1)) {
@@ -153,13 +159,13 @@ LoadItems <- function(){
 
 
 LoadOrderFacitility <- function(){
-  source("~/Projects/bi-reporting/etl/operations/orders.R")
+  source("~/Automation/operations/orders.R")
   recleans <- CalcOrders(start.date = "2014-01-01", out.fi = "data/input/orders.csv")
 }
 
 
 LoadReschedules <- function(){
-  source("~/Projects/bi-reporting/etl/operations/reschedules.R")
+  source("~/Automation/operations/reschedules.R")
   reschedules <- CalcReschedules(start.date = "2016-04-01", out.fi = "data/input/reschedules.csv")
 }
 
@@ -186,8 +192,8 @@ LoadHubLocations <- function(){
 LoadInputData <- function(){
   source("utils/utils.R")
   
-  loaders <- list(LoadCustomerData, LoadRefunds, LoadOrderFacitility, 
+  loaders <- list(LoadItems, LoadCustomerData, LoadRefunds, LoadOrderFacitility, 
                   LoadHubLocations, LoadFacilityLocation, LoadReschedules,
-                  LoadPunctuality, LoadItems)
+                  LoadPunctuality)
   lapply(loaders, function(f) f())
 }

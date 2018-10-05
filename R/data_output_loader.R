@@ -55,7 +55,7 @@ GetPunctuality <- function(churn.data){
 }
 
 GetVouchers <- function(churn.data) {
-  vouchers <- fread("~/Projects/bi-reporting/etl/marketing/csv/marketing_dataset.csv")
+  vouchers <- fread("~/Automation/marketing/csv/marketing_dataset.csv")
   vouchers <- vouchers[, c("order_id", "voucher_value")]
   churn.data <- merge(churn.data, vouchers, by = "order_id", all.x = TRUE)
   

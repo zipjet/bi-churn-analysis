@@ -3,7 +3,7 @@ Main <- function(){
   source("utils/configs.R", local = T)
   
   
-  SetPackages("packages.csv")
+  SetPackages("R/packages.csv")
   TransformData(T)
 }
 
