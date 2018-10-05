@@ -43,7 +43,7 @@ def _get_product_types(products, product_types):
     return products_grouped
 
 
-def group_products(products_path, product_types_path, save_path='../../data/product_groups.csv'):
+def group_products(products_path, product_types_path, save_path='../../data/input/product_groups.csv'):
     # load product names
     df_products = pd.read_csv(products_path)
     products = df_products.product_name.sort_values().unique().tolist()
@@ -55,12 +55,13 @@ def group_products(products_path, product_types_path, save_path='../../data/prod
 
     product_groups = _get_product_types(products, product_types)
 
-    df_products = pd.DataFrame.from_dict(product_groups, orient='index').reset_index()
-    df_products.columns = ['product_name', 'product_type']
+    df_products_groups = pd.DataFrame.from_dict(product_groups, orient='index').reset_index()
+    df_products_groups.columns = ['product_name', 'product_type']
+    df_products = df_products[['product_id', 'product_name']].merge(df_products_groups, on='product_name', how='left')
     df_products = df_products.merge(df_itemization, on='product_type')
 
     print('Writing grouped products to', save_path)
     df_products.to_csv(save_path, index=False)
 
 if __name__ == '__main__':
-    group_products('../../data/products.csv', '../../data/product_types.csv')
+    group_products('../../data/input/products.csv', '../../data/input/product_types.csv')

@@ -37,11 +37,9 @@ def get_cluster_names(df_centers, threshold=0.5):
 
     return cluster_names
 
-def prepare_dummies(items_csv_path, products_csv_path):
+def prepare_dummies(items_csv_path):
 
     df = pd.read_csv(items_csv_path) # df with items per order
-    df_products = pd.read_csv(products_csv_path)
-    df = df.merge(df_products, how='left', on='product_name')
 
     # for each customer and product_group get how many orders this group was included in and in what quantity
     df_group = df.groupby(['order_id', 'product_group'])\
@@ -56,10 +54,10 @@ def prepare_dummies(items_csv_path, products_csv_path):
     return df_dumm
 
 
-def cluster_orders(items_csv_path, products_csv_path, save_csv_path,
+def cluster_orders(items_csv_path, save_csv_path,
                    n_clusters=10, load_model_path=None, save_model_path=None):
 
-    df = prepare_dummies(items_csv_path, products_csv_path)
+    df = prepare_dummies(items_csv_path)
     if load_model_path:
         kmeans = load_cluster_model(load_model_path)
     else:
@@ -79,11 +77,11 @@ def cluster_orders(items_csv_path, products_csv_path, save_csv_path,
 
     return kmeans, df, df_centers
 
+
 if __name__ == '__main__':
-    products_path = '../../data/product_groups.csv'
     items_path = '../../data/items.csv'
     save_path = '../../data/clustered_orders.csv'
 
     load_model = '../../data/models/orders_clf.pkl'
 
-    cluster_orders(items_path, products_path, save_path, load_model_path=load_model)
+    cluster_orders(items_path, save_path, load_model_path=load_model)
