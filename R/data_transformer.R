@@ -245,10 +245,11 @@ CalcRevenue <- function(customers, orders) {
 }
 
 CalcPunctuality <- function(customers, orders){
-  punct <- orders[punctual_order == FALSE, .(unpunctual_orders = .N), by = customer_db_id]
-  punct.late <- orders[delay_mins_DO > 0 | delay_mins_PU > 0,
+  punct <- orders[punctual_order == FALSE & order_state == "completed", 
+                  .(unpunctual_orders = .N), by = customer_db_id]
+  punct.late <- orders[(delay_mins_DO > 0 | delay_mins_PU > 0) & order_state == "completed",
                        .(late_orders = .N), by = customer_db_id]
-  punct.early <- orders[delay_mins_DO < 0 | delay_mins_PU < 0,
+  punct.early <- orders[(delay_mins_DO < 0 | delay_mins_PU < 0) & order_state == "completed",
                        .(early_orders = .N), by = customer_db_id]
   
   customers <- merge(customers, punct.late, by = "customer_db_id", all.x = T)
@@ -261,10 +262,12 @@ CalcPunctuality <- function(customers, orders){
   return(customers)
 }
 
-GetNPS <- function(customers){
+GetNPS <- function(customers, orders){
   nps <- fread("data/input/NPS.csv")
   nps <- nps[, c("NPS", "email")]
   customers <- merge(customers, nps, all.x = T, by = "email")
+  
+  return(customers)
 }
 
 CalcClusters <- function(customers, orders){
