@@ -1,339 +1,268 @@
+library(data.table)
+library(zoo)
+library(ggplot2)
+library(plyr)
 
-MergeToCustomers <- function(customers, to.merge, col.name.old, col.name.new, 
-                             by.x="customer_db_id", by.y="customer_db_id"){
-  cust.merged <- merge(customers, to.merge, all.x = T, by.x = by.x, by.y = by.y)
-  setnames(cust.merged, col.name.old, col.name.new)
-  
-  return(cust.merged)
-}
+# Each order should have s2 cell data, order -> pu and do (b2c and b2b)
 
-MergeFirstAndLastOrder <- function(customers, orders) {
-  merge.cols <- c("customer_id", "order_state", "order_created_datetime", 
-                  "days_since_last_order", "days_until_next_order",
-                  "service_class", "software_type", "product_combinations",
-                  "voucher_channel", "voucher_used", "voucher_value", 
-                  "voucher_revenue_ratio", "revenue", "reclean_order",
-                  "customer_rescheduled", "internal_rescheduled", "rating",
-                  "refund_request", "refund_approved", "refund_type", "pickup_zip", 
-                  "fac_name", "punctual_order")
+GetSupplyByS2CellTime <- function(){
+  supply <- fread("../demand_prediction/dp/data/supply/temp.csv")
+  supply[timeslot_from > "14:00", shift := "ES"]
+  supply[is.na(shift), shift := "MS"]
+  supply <- supply[t_back_bucket >= -48]
+  supply[, month_year := as.yearmon(as.Date(day))]
   
-  orders.last <- orders[order(order_created_datetime, decreasing = T), 
-                        .SD[1], by = customer_db_id]
-  orders.first <- orders[order(order_created_datetime), .SD[1], 
-                        by = customer_db_id]
+  supply <- supply[, mean(avail_area_ratio),
+                   by = c("cover_cell_id", "shift", "day_of_week")]
+  setnames(supply, "V1", "mean_supply")
   
-  orders.last <- orders.last[, ..merge.cols]
-  names(orders.last) <- unlist(lapply(merge.cols, function(x) paste0('last_', x)))
-  customers <- merge(customers, orders.last, by.x = "customer_id", by.y = "last_customer_id", all.x = T)
-  
-  orders.first <- orders.first[, ..merge.cols]
-  names(orders.first) <- unlist(lapply(merge.cols, function(x) paste0('first_', x)))
-  customers <- merge(customers, orders.first, by.x = "customer_id", by.y = "first_customer_id", all.x = T)
-  
-  return(customers)
+  return (supply)
 }
 
 
-CalcOrderCounts <- function(customers, orders){
+
+GetS2Cells <- function(data){
+  demand <- fread("../demand_prediction/dp/data/supply/demand_berlin_lvl12.csv")
+  demand[, id := gsub("-PU|-RC2-PU|-DO|-RC2-DO", "", id)]
+  demand <- demand[, c("id", "cover_cell_id")]
+  demand <- demand[!duplicated(id)]
   
-  CountOrders <- function(customers, orders, order_states, col_name){
-    orders.states <- orders[order_state %in% order_states, .N , by=customer_db_id]
-    customers <- MergeToCustomers(customers, orders.states, "N", col_name)
-    customers[is.na(customers[[col_name]]), (col_name) := 0]
+  data <- merge(data, demand, all.x = T, by.x = c("order_id"), by.y=c("id")) 
+  #View(head(demand))
+  
+  return(data)
+}
+
+
+GetCustomerExp <- function(data){
+  ratings <- fread("../reporting/powerbi-share/R_outputs/ratings.csv")
+  final.cols <- c("order_ref", "topics_cleaning quality", "topics_damaged item", 
+                  "topics_driver conduct", "topics_ironing quality", 
+                  "topics_missing items", "topics_punctuality")
+  ratings <- ratings[, final.cols, with = F]
+  
+  data <- merge(data, ratings, all.x = T, by.x = "order_id", by.y = "order_ref")
+  
+  return (data)
+}
+
+
+GetPunctuality <- function(data, late.threshold = 10, early.threshold = 10){
+  final.cols <- c("id", "task_type", "late_by_more_than_one_min",
+                  "early_by_more_than_five_min")
+  punct <- fread("../reporting/powerbi-share/R_outputs/punctuality.csv")
+  punct[grepl("PU", reference), task_type := "PU"]
+  punct[is.na(task_type), task_type := "DO"]
+  punct[, id := gsub("-PU|-RC2-PU|-DO", "", reference)]
+  punct <- punct[, final.cols, with = F]
+  
+  punct <- punct[late_by_more_than_one_min > late.threshold |
+                   early.threshold > early.threshold]
+  punct <- unique(punct, by = "id")
+  punct[, not_punctual := T]
+  punct <- punct[, c("id", "not_punctual"), with = F]
+  
+  data <- merge(data, punct, all.x = T, by.x = "order_id", by.y = "id")
+  data[is.na(not_punctual), not_punctual := F]
+  
+  return (data)
+}
+
+
+GetPickupDate <- function(data){
+  final.cols <- c("id", "task_type", "late_by_more_than_one_min",
+                  "early_by_more_than_five_min")
+  punct <- fread("../reporting/powerbi-share/R_outputs/punctuality.csv")
+  
+  punct <- punct[grepl("PU", reference)]
+  punct[, order_id := gsub("-PU|-RC2-PU|-DO", "", reference)]
+  punct <- punct[, c("order_id", "timeslot_from"), with = F]
+  punct[, day := as.Date(timeslot_from)]
+  punct[, day_of_week := weekdays(day)]
+  punct[, time := strftime(timeslot_from, format="%H:%M")]
+  punct[time > "14:00", shift := "ES"]
+  punct[is.na(shift), shift := "MS"]
+  
+  punct <- punct[, c("order_id", "day_of_week", "shift")]
+  data <- merge(data, punct, all.x = T, by = "order_id")
+  
+  return(data)
+}
+
+
+GetCustomersByNumOrders <- function(num.orders, current.date, churn.threshold){
+  start.date <- as.Date("2017-01-01")
+  end.date <- as.Date("2018-06-01")
+  final.cols <- c("order_id", "city", "churned", "net_before_voucher_eur",
+                  "voucher_value", "voucher_ratio", "customer_db_id")
+  
+  data <- fread("../reporting/powerbi-share/R_outputs/marketing_dataset.csv")
+  data <- data[order_state == "completed"]
+  
+  data[, num_orders := .N, by = "customer_db_id"]
+  
+  data <- data[, order_created_datetime := as.POSIXct(order_created_datetime)]
+  data <- data[order(-order_created_datetime)]
+  data[, last_order_date := order_created_datetime[1], by = "customer_db_id"]
+  
+  data[, days_since_last_order := difftime(current.date,
+                                           as.Date(last_order_date))]
+  data <- data[days_since_last_order >= churn.threshold, churned := T]
+  data[is.na(churned), churned := F]
+  
+  data <- data[as.Date(order_created_datetime) >= start.date]
+  data <- data[as.Date(order_created_datetime) <= end.date]
+  
+  
+  data[, voucher_ratio := voucher_value / net_before_voucher_eur]
+  
+  data <- data[num_orders == num.orders]
+  data <- data[, final.cols, with = F]
+  
+  data <- GetCustomerExp(data)
+  data <- GetPunctuality(data)
+  data <- GetS2Cells(data)
+  data <- GetPickupDate(data)
+
+  supply <- GetSupplyByS2CellTime()
+  data <- merge(data, supply, all.x = T, by = c("cover_cell_id", "shift", "day_of_week"))
+
+  return (data)
+  
+}
+
+
+data <- GetCustomersByNumOrders(1, as.Date("2018-10-02"), 120)
+data <- data[city == "Berlin"]
+
+
+
+
+# Cluster
+data[(net_before_voucher_eur - voucher_value) < 30 | voucher_ratio > 0.7, churn_cluster_1 := T]
+data[is.na(churn_cluster_1), churn_cluster_1 := F]
+
+data[`topics_cleaning quality` == 1|`topics_damaged item`  == 1|
+     `topics_driver conduct` == 1 | `topics_ironing quality`  == 1|
+     `topics_missing items` == 1| topics_punctuality == 1, churn_cluster_2 := T]
+data[not_punctual == T, churn_cluster_2 := T]
+data[is.na(churn_cluster_2), churn_cluster_2 := F]
+data[mean_supply < 0.1]
+
+# Count by clusters
+data[, .N, by = churned]
+dim(data[churned == T & churn_cluster_1 == T & churn_cluster_2 == T])
+dim(data[churned == T & churn_cluster_1 == F & churn_cluster_2 == T])
+
+
+
+# Items
+library(cluster)
+items <- fread("items.csv")
+items[is.na(product_type)]
+items[product_type == "Special Price / PKW / Plaid / Quote / Test / Minimum order value / Delivery / Rescheduling / Express / DefaultItem / Outfittery", product_type := "Other"]
+items <- items[, product_type_quantity := sum(quantity), by = c("order_id", "product_type")]
+items <- items[, c("order_id", "product_type", "product_type_quantity")]
+items <- unique(items, by = c("order_id", "product_type"))
+items <- dcast(items, order_id ~ product_type)
+items[is.na(items)] <- 0
+write.csv(items, file = "items.csv", row.names = F)
+
+
+# items <- items[variable != "Special Price / PKW / Plaid / Quote / Test / Minimum order value / Delivery / Rescheduling / Express / DefaultItem / Outfittery"]
+# items <- dcast(items, order_id ~ variable)
+
+
+# Clean data
+items <- fread("items.csv")
+items <- melt(items, id.vars = "order_id")
+items <- items[!grepl("RC", order_id)]
+items <- dcast(items, order_id ~ variable)
+# 2. remove maximum outliers???
+
+
+# 3. add features as gender, season, city, and b2c/b2b
+data <- fread("../reporting/powerbi-share/R_outputs/marketing_dataset.csv")
+data <- data[, c("is_corporate", "order_created_datetime", "city", "order_id")]
+data[, month := month(as.Date(order_created_datetime))]
+data[month < 3 | month == 12, season := 1] # winter - season 1
+data[month > 2 & month <= 5, season := 2]
+data[month > 5 & month <= 8, season := 3]
+data[month > 8 & month <= 11, season := 4]
+
+data$is_corporate <- mapvalues(data$is_corporate, c("TRUE", "FALSE"), c(1, 0))
+data <- data[, -c("month", "order_created_datetime"), with = F]
+
+items <- merge(items, data, all.x = T, by = "order_id")
+
+items$city <- mapvalues(items$city, c("London", "Berlin", "Paris"), c(1, 2, 3))
+write.csv(items, file = "items.csv", row.names = F)
+
+
+
+# one hot season and city:
+items <- fread("items.csv")
+seasons <- items[, c("order_id", "season"), with = F]
+seasons <- dcast(seasons, order_id ~ season)
+
+seasons[is.na(seasons)] <- 0
+bin.cols <- seasons[, 2:5]
+bin.cols[bin.cols > 0] <- 1
+seasons[, 2:5] <- bin.cols
+names(seasons) <- c("order_id", "winter", "spring", "summer", "fall")
+items <- items[, -c("season"), with = F]
+items <- merge(items, seasons, all.x = T, by = "order_id")
+
+
+items <- items[, -c("city"), with = F]
+items <- melt(items, id.vars = c("order_id", "is_corporate", "winter",
+                                 "spring", "summer", "fall"))
+
+
+
+
+
+# Bucket item counts
+items <- fread("items.csv")
+
+BucketItem <- function(item.col){
+  breaks <- quantile(item.col[item.col > 0], c(0.25, 0.5, 0.75))
+  if (breaks[1] != 0){
+    breaks <- c(0, breaks, max(item.col))  
+  }else{
+    breaks <- c(breaks, max(item.col))
+  }
+  
+  buckets <- cut(item.col, breaks)
+  buckets <- as.character(buckets)
+  
+  ParseBucket <- function(s){
+    if (is.na(s)) return (NA)
     
-    return(customers)
-  }
-  
-  customers <- CountOrders(customers, orders, c("processing", "reserved"), "open_orders")
-  customers <- CountOrders(customers, orders, c("canceled"), "canceled_orders")
-  customers <- CountOrders(customers, orders, c("payment_error"), "pay_error_orders")
-  customers <- CountOrders(customers, orders, c("completed"), "completed_orders")
-  customers[, total_orders :=  completed_orders + open_orders + canceled_orders + pay_error_orders]
-
-  return(customers)
-}                    
-
-
-CalcOrderDates <- function(customers, orders) {
-
-  orders.second <- orders[order_state == "completed"]
-  orders.second <- orders.second[order(order_created_datetime), .SD[2], by = customer_db_id]
-  customers <- MergeToCustomers(customers, orders.second[, c("customer_db_id", "order_created_datetime")],
-                                "order_created_datetime", "second_order_date")
-  customers[, first_order_recency := as.Date(second_order_date) - as.Date(first_order_created_datetime)]
-  return(customers)
-}
-
-CalcServiceClass <- function(customers, orders){
-  cust.class <- orders[, .N, by = c("customer_db_id", "service_class")]
-  cust.class <- dcast(cust.class, `customer_db_id` ~ service_class, value.var = "N")
-  cust.class <- data.table(cust.class)
-  for (i in names(cust.class))
-    cust.class[is.na(get(i)), (i) := 0]
-  customers <- merge(customers, cust.class, by = "customer_db_id", all.x = TRUE)
-  
-  return(customers)
-}
-
-CalcSoftwareType <- function(customers, orders){
-  cust.soft <- orders[, .N, by = c("customer_db_id", "software_type")]
-  cust.soft <- dcast(cust.soft, `customer_db_id` ~ software_type, value.var = "N")
-  cust.soft <- data.table(cust.soft)
-  for (i in names(cust.soft))
-    cust.soft[is.na(get(i)), (i) := 0]
-  customers <- merge(customers, cust.soft, by = "customer_db_id", all.x = TRUE)
-  
-  return(customers)
-}
-
-CalcBasketSegments <- function(customers, orders){
-  product.cols <- c("product_LA", "product_HH", "product_DC", "product_WF")
-  basket.segments <- orders[, lapply(.SD, sum), by = customer_db_id, 
-                                .SDcols = product.cols]
-  customers <- merge(customers, basket.segments, by = "customer_db_id", all.x = TRUE)
-  
-  return(customers)
-}
-
-CalcVoucherUsage <- function(customers, orders){
-  # vouchers
-  vouchers.used <- orders[voucher_used == T, .N, by = customer_db_id]
-  customers <- MergeToCustomers(customers, vouchers.used, "N", "vouchers_used")
-  customers[is.na(vouchers_used), vouchers_used := 0]
-  
-  vouchers.ratio <- orders[, sum(voucher_value, na.rm = T) / (sum(
-    voucher_value, na.rm = T) + sum(revenue, na.rm = T)), by = customer_db_id]
-  customers <- MergeToCustomers(customers, vouchers.ratio, "V1", 
-                                "vouchers_revenue_ratio")
-  customers[is.na(vouchers_revenue_ratio), vouchers_revenue_ratio := 0]
-  
-  return(customers)
-}
-
-CalcRecleans <- function(customers, orders){
-  recleans <- orders[, sum(reclean_order, na.rm = T), by = customer_db_id]
-  customers <- MergeToCustomers(customers, recleans, "V1", "reclean_orders")
-  customers[is.na(reclean_orders), reclean_orders := 0]
-  
-
-  customers$reclean_ratio <- 0
-  customers[completed_orders > 0, reclean_ratio := reclean_orders / completed_orders]
-
-  return(customers)
-}
-
-CalcReschedules <- function(customers, orders){
-  # reschedules
-  reschedules <- orders[
-    , .(internal_reschedules = sum(num_internal_reschedules, na.rm = T), 
-        customer_reschedules = sum(num_customer_reschedules, na.rm = T)), 
-    by = customer_db_id]
-  customers <- merge(customers, reschedules, all.x = T, by = "customer_db_id")
-  
-  return(customers)
-}
-
-CalcRatings <- function(customers, orders){
-
-  ratings <- orders[!is.na(rating), 
-                    .(rated_orders = .N, avg_rating = mean(rating)), 
-                    by = customer_db_id]
-
-  customers <- merge(customers, ratings, all.x = T, by = "customer_db_id")
-  customers[is.na(rated_orders), rated_orders := 0]
-  customers[, rated_orders_ratio := rated_orders / (completed_orders + canceled_orders)]
-  customers[is.na(rated_orders_ratio), rated_orders_ratio := 0]
-  customers[, rating_diff := last_rating - avg_rating]
-  
-  return(customers)
-}
-
-CalcRefunds <- function(customers, orders){
-  refunds.success <- orders[refund_approved == T, .(refund_approved = .N), 
-                            by = customer_db_id]
-  customers <- merge(customers, refunds.success, all.x = T, by = "customer_db_id")
-  refunds.unsuccess <- orders[refund_approved == F, .(refund_not_approved = .N),
-                              by = customer_db_id]
-  customers <- merge(customers, refunds.unsuccess, all.x = T, by = "customer_db_id")
-  refunds.request <- orders[refund_request == T, .(refund_requests = .N),
-                              by = customer_db_id]
-  customers <- merge(customers, refunds.request, all.x = T, by = "customer_db_id")
-  
-  return(customers)  
-}
-
-CalcPickUps <- function(customers, orders){
-  
-  CalcPickUpRatio <- function(pickups, col.name){
-    cols <- c("customer_db_id", col.name)
-    pickup.ratio <- pickups[, .(num_pickups = .N), by = mget(cols)]
-    pickup.ratio[, total_pickups := sum(num_pickups), by = customer_db_id]
-    pickup.ratio[, pickup_ratio := num_pickups / total_pickups]
-    dcast.form <- as.formula(paste0("customer_db_id~", col.name))
-    pickup.ratio <- dcast(pickup.ratio, dcast.form, value.var = "pickup_ratio", 
-                          fill = 0)
+    s <- gsub("\\(", "", strsplit(s, split=",")[[1]][1])
+    if (s == "0") return ("1")
     
-    return(pickup.ratio)
+    return (s)
   }
   
-  pickups <- orders[, c("customer_db_id", "pickup_timeslot_from_datetime")]
-  pickups$weekday <- weekdays.Date(as.Date(pickups$pickup_timeslot_from_datetime))
-  pickups$hour <- substr(pickups$pickup_timeslot_from_datetime, 12, 13)
-  pickups$timeofday <- "early_morning"
-  pickups[hour >= 10 & hour <= 14, timeofday := "before_noon"]
-  pickups[hour > 14 & hour <= 18, timeofday := "after_noon"]
-  pickups[hour > 18, timeofday := "evening"]
+  buckets <- sapply(buckets, ParseBucket)
   
-  pickup.days <- CalcPickUpRatio(pickups, "weekday")
-  pickup.hours <- CalcPickUpRatio(pickups, "timeofday")
-  pickups <- merge(pickup.days, pickup.hours, all = T, by = "customer_db_id")
-  
-  pickup.names.old <- names(pickups[, -c("customer_db_id")])
-  pickup.names.new <- unlist(lapply(pickup.names.old, 
-                                    function(x) paste0("pickup_", tolower(x))))
-  setnames(pickups, pickup.names.old, pickup.names.new)
-  
-  customers <- merge(customers, pickups, all.x = T, by = "customer_db_id")
-
-  return(customers)
+  return (buckets)
 }
 
-CalcClosestLaundry <- function(customers, orders){
-  
-  library(geosphere)
-  
-  laundries = fread("data/input/laundries.csv")
-  
-  GetClosestLaundry <- function(r){
-    if(is.na(r["order_x"])){
-      return(data.frame())
-    } else {
-      dist.mat = distm(cbind(as.numeric(r["order_y"]), 
-                             as.numeric(r["order_x"])), 
-                       cbind(laundries$lng, 
-                             laundries$lat))
-      dist = min(dist.mat)
-      idx = which.min(dist.mat)
-      rating = laundries[idx, "rating"][[1]]
-      within_1km = sum(dist.mat <= 1000)
-      
-      return(
-        data.frame(laundry_distance = dist,
-                   laundry_rating = rating,
-                   laundry_within_1km = within_1km))
-    }
-  }
-  
-  orders.last <- orders[order(order_created_datetime, decreasing = T), 
-                        .SD[1], by = customer_db_id]
-  
-  orders.coords <- orders.last[!is.na(order_x), c("customer_db_id", "order_x", "order_y")]
-  orders.coords$laundry <- apply(orders.coords, 1, GetClosestLaundry)
-  orders.coords <- unnest(orders.coords, laundry)
-  
-  orders.coords <- orders.coords[, -c("order_x", "order_y")]
-  customers <- merge(customers, orders.coords,
-                    by = "customer_db_id", all.x = T)
-  
-  return(customers)
-}
 
-CalcRevenue <- function(customers, orders) {
-  customers[, last_order_revenue_diff := (last_revenue - aov)/aov]
-  
-  return(customers)
-}
+product.type.from <- c("Teddy", "Bolster", "Napkin / Serviette")
+product.type.to <- c("Other", "Pillow", "TableCloth")
 
-CalcPunctuality <- function(customers, orders){
-  punct <- orders[punctual_order == FALSE & order_state == "completed", 
-                  .(unpunctual_orders = .N), by = customer_db_id]
-  punct.late <- orders[(delay_mins_DO > 0 | delay_mins_PU > 0) & order_state == "completed",
-                       .(late_orders = .N), by = customer_db_id]
-  punct.early <- orders[(delay_mins_DO < 0 | delay_mins_PU < 0) & order_state == "completed",
-                       .(early_orders = .N), by = customer_db_id]
-  
-  customers <- merge(customers, punct.late, by = "customer_db_id", all.x = T)
-  customers <- merge(customers, punct.early, by = "customer_db_id", all.x = T)
-  customers <- merge(customers, punct, all.x = T, by = "customer_db_id")
-  
-  customers[unpunctual_orders > 0 & completed_orders > 0,
-            unpunctual_ratio := unpunctual_orders / completed_orders]
-  
-  return(customers)
-}
 
-GetNPS <- function(customers, orders){
-  nps <- fread("data/input/NPS.csv")
-  nps <- nps[, c("NPS", "email")]
-  customers <- merge(customers, nps, all.x = T, by = "email")
-  
-  return(customers)
-}
+items <- fread("items_with_clusters.csv")
+items <- melt(items, id.vars = c("cluster", "winter", "spring", "summer", "fall", "is_corporate"), variable.name = "product_type", value.name = "count")
+items <- items[count > 0]
+items <- items[, median(count), by = c("cluster", "product_type")]
+items[, cluster := as.integer(cluster)]
 
-CalcClusters <- function(customers, orders){
-  
-  clusters <- orders[!is.na(cluster), c("customer_db_id", "cluster")]
-  clusters <- dcast(clusters, `customer_db_id` ~ cluster)
-  
-  cluster.cols <- names(clusters)[2:length(names(clusters))]
-  cluster.cols <- unlist(lapply(cluster.cols, function(x) paste0('cluster_', x)))
-  names(clusters) <-  c("customer_db_id", cluster.cols)
-  
-  clusters <- cbind(clusters[, "customer_db_id"],
-                    prop.table(data.matrix(clusters[, ..cluster.cols]), margin=1))
-  
-  customers <- merge(customers, clusters, by="customer_db_id", all.x = T)
-  
-  # first order cluster
-  orders.first.completed <- orders[order_state == "completed" 
-                                   & order(order_created_datetime), 
-                                   .SD[1], by = customer_db_id]
-  customers <- MergeToCustomers(customers, 
-                                orders.first.completed[, c("customer_db_id", "cluster")],
-                                "cluster",
-                                "first_order_cluster")
-  
-  # first order cluster
-  orders.last.completed <- orders[order_state == "completed" 
-                                   & order(order_created_datetime), 
-                                   .SD[.N], by = customer_db_id]
-  customers <- MergeToCustomers(customers, 
-                                orders.last.completed[, c("customer_db_id", "cluster")],
-                                "cluster",
-                                "last_order_cluster")
-  
-}
-
-TransformData <- function(load.data=F){
-
-  library(data.table)
-  library(tidyr)
-  
-  source("utils/utils.R")
-  
-  if (load.data) {
-    source("R/data_output_loader.R")
-    LoadData(refresh=T)
-  }
-  
-  print("Transforming Data...")
-  orders <- fread("data/order_churn_data.csv")
-  constant.cols <- c("customer_db_id", "customer_id", "gender", "segment", "email",
-                     "aov", "recency", "frequency", "churn_factor", "referred", 
-                     "newsletter_optin", "city")
-  customers <- orders[, constant.cols, with = F]
-  customers <- customers[!duplicated(customers)]
-  
-  customers <- MergeFirstAndLastOrder(customers, orders)
-  
-  transformations <- c(CalcOrderCounts, CalcOrderDates, CalcServiceClass,
-                       CalcSoftwareType, CalcBasketSegments, CalcVoucherUsage,
-                       CalcRevenue, CalcClusters, 
-                       CalcRecleans, CalcReschedules, CalcRatings, CalcRefunds,
-                       CalcPickUps, CalcPunctuality, CalcClosestLaundry, GetNPS)
-  res <- lapply(transformations, function(f) customers <<- f(customers, orders))
-  
-  write.csv(customers, "data/churn_dataset.csv", row.names = F,
-            fileEncoding = "utf-8")
-}
-
+ggplot(items, aes(cluster, product_type)) +
+  geom_tile(aes(fill = V1)) + 
+  geom_text(aes(label = round(V1, 1))) +
+  scale_fill_gradient(low = "white", high = "red") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
