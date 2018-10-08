@@ -250,19 +250,3 @@ BucketItem <- function(item.col){
   return (buckets)
 }
 
-
-product.type.from <- c("Teddy", "Bolster", "Napkin / Serviette")
-product.type.to <- c("Other", "Pillow", "TableCloth")
-
-
-items <- fread("items_with_clusters.csv")
-items <- melt(items, id.vars = c("cluster", "winter", "spring", "summer", "fall", "is_corporate"), variable.name = "product_type", value.name = "count")
-items <- items[count > 0]
-items <- items[, median(count), by = c("cluster", "product_type")]
-items[, cluster := as.integer(cluster)]
-
-ggplot(items, aes(cluster, product_type)) +
-  geom_tile(aes(fill = V1)) + 
-  geom_text(aes(label = round(V1, 1))) +
-  scale_fill_gradient(low = "white", high = "red") +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1))
