@@ -3,6 +3,8 @@ GetRatings <- function(churn.data){
   ratings.cols.old <- names(ratings)[grepl("topics", names(ratings))]
   ratings.cols.new <- unlist(lapply(ratings.cols.old, 
                                     function(x) gsub("topics", "rating", x)))
+  ratings.cols.new <- unlist(lapply(ratings.cols.new, 
+                                    function(x) gsub(" ", "_", x)))
   setnames(ratings, ratings.cols.old, ratings.cols.new)
   ratings.cols <- append(ratings.cols.new, c("order_ref", "rating"), 0)
 
@@ -182,6 +184,27 @@ CalcChurnFactor <- function(churn.data){
   return(churn.data)
 }
 
+FillMissingValues <- function(churn.data){
+  
+  FillColumn <- function(col.name, fill.value){
+    return(churn.data[is.na(get(col.name)), eval(col.name) := fill.value])
+  }
+  
+  churn.data <- FillColumn("aov", 0)
+  churn.data <- FillColumn("email", "")
+  churn.data <- FillColumn("gender", "unknown")
+  churn.data <- FillColumn("fac_name", "unknown")
+  churn.data <- FillColumn("rating", 0)
+  
+  return(churn.data)
+}
+
+GetMissValues <- function(customers){
+  a <- sapply(customers, function(x) sum(is.na(x)))
+  a <- a[a>0]
+  return(data.frame(keyNames=names(a), value=a, row.names=NULL))
+}
+
 LoadData <- function(refresh = F){
   
   library(data.table)
@@ -213,6 +236,7 @@ LoadData <- function(refresh = F){
 
 
   churn.data <- churn.data[!duplicated(churn.data)]
+  churn.data <- FillMissingValues(churn.data)
   write.csv(churn.data, out.file, row.names = F, fileEncoding = "utf-8")
 }
 
