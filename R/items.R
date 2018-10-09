@@ -81,9 +81,12 @@ GenItemsOneHot <- function(){
 library(ggplot2)
 library(data.table)
 
-item.clusters <- fread("data/item_clusters.csv")
+#item.clusters <- fread("data/item_clusters.csv")
+item.clusters <- fread("data/item_clusters_cities.csv")
 items <- fread("data/one_hot_items.csv")
 items <- merge(items, item.clusters, by = "order_id")
+items <- items[city == "London"]
+items <- items[, -c("order_id", "city", "season"), with = F]
 items <- melt(items, id.vars = "cluster", variable.name = "product_type", value.name = "count")
 items <- items[, sum(count), by = c("cluster", "product_type")]
 

@@ -8,7 +8,7 @@ GetData <- function(){
   data <- fread("../reporting/powerbi-share/R_outputs/marketing_dataset.csv")
   item.clusters <- fread("data/item_clusters_seasons.csv")
   
-  data <- data[order_state == "completed", final.cols, with = F]
+  data <- data[order_state == "completed" & is_corporate == F, final.cols, with = F]
   
   data[, order_created_datetime := as.POSIXct(order_created_datetime)]
   data <- data[order(-order_created_datetime)]
@@ -20,6 +20,30 @@ GetData <- function(){
   data <- data[as.Date(order_created_datetime) <= as.Date("2018-06-30")]
   
   return(data)
+}
+
+
+FindFirstRevenueThreshold <- function(data){
+  data <- GetData()
+  item.clusters <- fread("data/item_clusters_cities.csv")
+  
+  data <- merge(data, item.clusters, all.x = T, by = "order_id")
+  data <- data[!is.na(cluster)]
+  
+  
+  data <- data[order_created_datetime == first_order_date]
+  x1 = data[city == "Paris" & num_orders == 1]
+  x2 = data[city == "Paris" & num_orders >= 5]
+  x3 = data[city == "Paris" & num_orders >= 10]
+  
+  ggplot(data[city == "Paris" & num_orders == 1]) +
+    geom_boxplot(aes(x = cluster, y = net_before_voucher_eur, alpha = 0.5,
+                     color = "one_order")) + 
+    geom_boxplot(data = data[city == "Paris" & num_orders >= 5], aes(x = cluster,
+                                                                      y = net_before_voucher_eur,
+                                                                      alpha = 0.5,
+                                                                      color = "10+orders")) + 
+    ylim(c(0, 125))
 }
 
 
