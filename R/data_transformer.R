@@ -65,6 +65,7 @@ CalcOrderDates <- function(customers, orders) {
 }
 
 CalcServiceClass <- function(customers, orders){
+  orders <- orders[corporate, service_class = "CORP"]
   cust.class <- orders[, .N, by = c("customer_db_id", "service_class")]
   cust.class <- dcast(cust.class, `customer_db_id` ~ service_class, value.var = "N")
   cust.class <- data.table(cust.class)
