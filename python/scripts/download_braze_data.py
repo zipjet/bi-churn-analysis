@@ -4,7 +4,7 @@ import glob
 
 def parse_json_columns(df_braze, col_name, new_col_name, id_cols=None):
     if not id_cols:
-        id_cols = ['external_id']
+        id_cols = ['customer_id']
     
     df = df_braze[id_cols + [col_name]]
     # explode the list of campaigns to columns
@@ -44,7 +44,6 @@ def get_braze_campaigns(df_braze, out_file):
     df_camp = parse_json_columns(df_braze, 'campaigns_received', 'campaign')
 
     df_camp.columns = [c.split('.')[-1] for c in df_camp.columns]
-    df_camp = df_camp.rename(columns={'external_id': 'customer_id'})
     
     df_camp.to_csv(out_file, index=False)
     print('Donwloaded campaign data to', out_file)
@@ -54,11 +53,10 @@ def get_braze_campaigns(df_braze, out_file):
 def get_braze_canvases(df_braze, out_file):
     df_canv = parse_json_columns(df_braze, 'canvases_received', 'canvas')
     df_steps = parse_json_columns(df_canv, 'steps_received', 'canvas_step', 
-                                  id_cols=['external_id', 'api_canvas_id'])
-    df_canv_steps = df_canv.merge(df_steps, on=['external_id', 'api_canvas_id'], 
+                                  id_cols=['customer_id', 'api_canvas_id'])
+    df_canv_steps = df_canv.merge(df_steps, on=['customer_id', 'api_canvas_id'], 
                                   how='left')
     
-    df_canv_steps = df_canv_steps.rename(columns={'external_id': 'customer_id'})
     df_canv_steps.to_csv(out_file, index=False)
     print('Downloaded canvas data to', out_file)
     
@@ -66,11 +64,13 @@ def get_braze_canvases(df_braze, out_file):
         
 def main():
     df_braze = load_data('../../data/braze_export_segment/*.txt')
-    
-    #TODO: handle new columns (uninstalled, subscription)
+    df_braze = df_braze.rename(columns={'external_id': 'customer_id'})
     
     df_camp = get_braze_campaigns(df_braze, '../../data/braze_campaigns.csv')
     df_canv = get_braze_canvases(df_braze, '../../data/braze_canvases.csv')
+    
+    df_cust = df_braze.drop(['campaigns_received', 'canvases_received'], axis=1)
+    df_cust.to_csv('../../data/braze_customers.csv', index=False)
     
     print('done')
 
